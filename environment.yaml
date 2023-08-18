@@ -1,9 +1,6 @@
-name: sampling
+name: fm
 channels:
-  - pyg
   - pytorch
-  - dglteam/label/cu118
-  - nvidia
   - defaults
   - conda-forge
 dependencies:
