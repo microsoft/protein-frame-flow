@@ -1,0 +1,12 @@
+defaults:
+  - _self_
+  - base
+
+data:
+  sampler:
+    max_batch_size: 64
+
+experiment:
+  num_devices: 1
+  wandb:
+    name: single_gpu

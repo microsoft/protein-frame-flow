@@ -1,0 +1,69 @@
+data:
+  # CSV for path and metadata to training examples.
+  dataset:
+    max_num_res: 2000
+    min_num_res: 0
+    subset: null
+    samples_per_eval_length: 2
+    num_eval_lengths: 4
+    min_eval_length: 500
+    csv_path: ./preprocessed/metadata.csv
+  loader:
+    num_workers: 4
+    prefetch_factor: 10
+  sampler:
+    max_batch_size: 128
+    max_num_res_squared: 1_000_000
+    batch_repeats: 1
+    num_batches: null
+
+model:
+  t_embed_size: 64
+  index_embed_size: 64
+  node_embed_size: 256
+  edge_embed_size: 128
+  dropout: 0.0
+  ipa:
+    c_s: ${model.node_embed_size}
+    c_z: ${model.edge_embed_size}
+    c_hidden: 256
+    c_skip: 64
+    no_heads: 8
+    no_qk_points: 8
+    no_v_points: 12
+    seq_tfmr_num_heads: 4
+    seq_tfmr_num_layers: 2
+    num_blocks: 4
+
+experiment:
+  debug: False
+  seed: 123
+  num_devices: 2
+  batch_ot:
+    enabled: False
+    noise_per_sample: 1
+  training:
+    loss: bb_atom_loss
+    superimpose: all_atom  # c_alpha
+  wandb:
+    name: baseline
+    project: se3-fm
+    tags: ['baseline']
+  optimizer:
+    lr: 0.001
+  trainer:
+    overfit_batches: 0
+    min_epochs: 1 # prevents early stopping
+    max_epochs: 1000
+    accelerator: gpu
+    log_every_n_steps: 1
+    check_val_every_n_epoch: 1
+    deterministic: False
+    # gradient_clip_val: 1.0
+    strategy: ddp_find_unused_parameters_true
+  sampling:
+    num_timesteps: 100
+    min_t: 1e-3
+  checkpointer:
+    dirpath: ckpt/${experiment.wandb.project}/${experiment.wandb.name}/${now:%Y-%m-%d}_${now:%H-%M-%S}
+
