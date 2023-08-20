@@ -3,9 +3,9 @@ import torch
 import math
 from torch import nn
 
-from sampling.experimental.jyim.se3_flow_matching.models import ipa_pytorch
-from sampling.experimental.jyim.se3_flow_matching.data import utils as du
-from diffusion.corruption import so3_utils
+from models import ipa_pytorch
+from data import utils as du
+from data import so3_utils
 
 
 def get_index_embedding(indices, embed_size, max_len=2056):

@@ -16,7 +16,7 @@
 import dataclasses
 import io
 from typing import Any, Mapping, Optional
-from sampling.experimental.jyim.se3_flow_matching.data import residue_constants
+from data import residue_constants
 from Bio.PDB import PDBParser
 import numpy as np
 

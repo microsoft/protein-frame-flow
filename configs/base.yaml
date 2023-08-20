@@ -1,7 +1,7 @@
 data:
   # CSV for path and metadata to training examples.
   dataset:
-    max_num_res: 2000
+    max_num_res: 128
     min_num_res: 0
     subset: null
     samples_per_eval_length: 2

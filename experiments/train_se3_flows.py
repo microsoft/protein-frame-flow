@@ -15,7 +15,6 @@ from data.pdb_dataloader import PdbDataModule
 from models.flow_module import FlowModule
 from experiments import utils as eu
 import wandb
-# from torch.utils.data.distributed import dist
 
 log = eu.get_pylogger(__name__)
 

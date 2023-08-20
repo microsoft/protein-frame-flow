@@ -4,6 +4,10 @@ wandb*.json
 **/*.pdb
 preprocessed/
 ckpt/
+.vscode/
+*.code-workspace
+outputs/
+**/*.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

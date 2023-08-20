@@ -7,7 +7,7 @@ from scipy.stats import truncnorm
 import torch.nn as nn
 from typing import Optional, Callable, List, Sequence
 from openfold.utils.rigid_utils import Rigid
-from sampling.experimental.jyim.se3_flow_matching.data import all_atom
+from data import all_atom
 
 
 def permute_final_dims(tensor: torch.Tensor, inds: List[int]):
