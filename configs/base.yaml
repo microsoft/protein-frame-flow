@@ -18,25 +18,60 @@ data:
     num_batches: null
 
 model:
-  t_embed_size: 64
-  index_embed_size: 64
-  node_embed_size: 256
-  edge_embed_size: 128
-  dropout: 0.0
-  ipa:
-    c_s: ${model.node_embed_size}
-    c_z: ${model.edge_embed_size}
-    c_hidden: 256
-    c_skip: 64
-    no_heads: 8
-    no_qk_points: 8
-    no_v_points: 12
-    seq_tfmr_num_heads: 4
-    seq_tfmr_num_layers: 2
-    num_blocks: 4
+  architecture: flower
+  flower:
+    node_embed_size: 128
+    edge_embed_size: 128
+    node_features:
+      c_s: ${model.flower.node_embed_size}
+      c_pos_emb: 128
+      c_timestep_emb: 128
+      max_num_res: 2000
+      timestep_int: 1000
+    edge_features:
+      c_s: ${model.flower.node_embed_size}
+      c_p: ${model.flower.edge_embed_size}
+      relpos_k: 32
+    pair_network:
+      c_p: ${model.flower.edge_embed_size}
+      include_mul_update: True
+      inlude_tri_att: False
+      c_hidden_mul: 128
+      pair_transition_n: 4
+      n_pair_transform_layer: 5
+    structure_network:
+      n_structure_layer: 5
+      dropout: 0.1
+      n_structure_transition_layer: 1
+      structure_transition_dropout: 0.1
+      ipa:
+        c_s: ${model.flower.node_embed_size}
+        c_z: ${model.flower.edge_embed_size}
+        c_hidden: 16
+        no_heads: 12
+        no_qk_points: 4
+        no_v_points: 8
+
+  framediff:
+    t_embed_size: 64
+    index_embed_size: 64
+    node_embed_size: 256
+    edge_embed_size: 128
+    dropout: 0.0
+    ipa:
+      c_s: ${model.node_embed_size}
+      c_z: ${model.edge_embed_size}
+      c_hidden: 256
+      c_skip: 64
+      no_heads: 8
+      no_qk_points: 8
+      no_v_points: 12
+      seq_tfmr_num_heads: 4
+      seq_tfmr_num_layers: 2
+      num_blocks: 4
 
 experiment:
-  debug: False
+  debug: True # False
   seed: 123
   num_devices: 2
   batch_ot:
@@ -59,8 +94,7 @@ experiment:
     log_every_n_steps: 1
     check_val_every_n_epoch: 1
     deterministic: False
-    # gradient_clip_val: 1.0
-    strategy: ddp_find_unused_parameters_true
+    strategy: ddp
   sampling:
     num_timesteps: 100
     min_t: 1e-3

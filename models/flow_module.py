@@ -10,6 +10,7 @@ import tree
 import logging
 from pytorch_lightning import LightningModule
 from models.vf_model import VFModel
+from models.flower_model import Flower
 from data import all_atom 
 from data import utils as du
 from analysis import utils as au
@@ -43,7 +44,12 @@ class FlowModule(LightningModule):
         self._print_logger = logging.getLogger(__name__)
         self._exp_cfg = experiment_cfg
         self._sampling_cfg = experiment_cfg.sampling
-        self.model = VFModel(model_cfg)
+        if model_cfg.architecture == 'flower':
+            self.model = Flower(model_cfg.flower)
+        elif model_cfg.architecture == 'framediff':
+            self.model = VFModel(model_cfg.framediff)
+        else:
+            raise NotImplementedError()
         self._sample_write_dir = self._exp_cfg.checkpointer.dirpath
         os.makedirs(self._sample_write_dir, exist_ok=True)
         self.validation_epoch_metrics = []
@@ -271,7 +277,7 @@ class FlowModule(LightningModule):
             with torch.no_grad():
                 batch['trans_t'] = trans_t_1
                 batch['rotmats_t'] = rots_t_1
-                batch['t'] = torch.ones((num_batch, 1)) * t_1
+                batch['t'] = torch.ones((num_batch, 1)).to(device) * t_1
                 model_out = self.forward(batch)
                 model_outputs.append(
                     tree.map_structure(lambda x: du.to_numpy(x), model_out)

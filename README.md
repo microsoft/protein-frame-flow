@@ -4,7 +4,7 @@
 
 Run experiments
 ```bash
-python experiments/train_se3_flows.py
+python -W ignore experiments/train_se3_flows.py
 ```
 
 

@@ -144,7 +144,7 @@ class PdbDataset(Dataset):
             'res_idx': res_idx - np.min(res_idx) + 1,
             'rotmats_1': rotmats_1,
             'trans_1': trans_1,
-            'res_mask': processed_feats['bb_mask'],
+            'res_mask': processed_feats['bb_mask'].astype(np.int32),
         }
 
     def __len__(self):

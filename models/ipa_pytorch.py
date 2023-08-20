@@ -297,8 +297,6 @@ class InvariantPointAttention(nn.Module):
 
         self.softmax = nn.Softmax(dim=-1)
         self.softplus = nn.Softplus()
-        # TODO: Remove after published checkpoint is updated without these weights.
-        self.linear_rbf = Linear(20, 1)
 
     def forward(
         self,
