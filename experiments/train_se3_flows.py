@@ -1,6 +1,7 @@
 import os
 from typing import List, Optional
 import GPUtil
+import torch
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
@@ -17,6 +18,7 @@ from experiments import utils as eu
 import wandb
 
 log = eu.get_pylogger(__name__)
+torch.set_float32_matmul_precision('high')
 
 
 class Experiment:

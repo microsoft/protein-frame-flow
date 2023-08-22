@@ -4,7 +4,4 @@ defaults:
 
 data:
   sampler:
-    max_batch_size: 64
-    max_num_res_squared: 1_000_000
-    batch_repeats: 1
-    num_batches: null
+    max_batch_size: 48

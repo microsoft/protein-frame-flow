@@ -18,7 +18,9 @@ data:
     num_batches: null
 
 model:
-  architecture: flower
+  architecture: framediff
+
+  # Architecture based on GENIE
   flower:
     node_embed_size: 128
     edge_embed_size: 128
@@ -41,9 +43,9 @@ model:
       n_pair_transform_layer: 5
     structure_network:
       n_structure_layer: 5
-      dropout: 0.1
+      dropout: 0.0
       n_structure_transition_layer: 1
-      structure_transition_dropout: 0.1
+      structure_transition_dropout: 0.0
       ipa:
         c_s: ${model.flower.node_embed_size}
         c_z: ${model.flower.edge_embed_size}
@@ -59,9 +61,9 @@ model:
     edge_embed_size: 128
     dropout: 0.0
     ipa:
-      c_s: ${model.node_embed_size}
-      c_z: ${model.edge_embed_size}
-      c_hidden: 256
+      c_s: ${model.framediff.node_embed_size}
+      c_z: ${model.framediff.edge_embed_size}
+      c_hidden: 128
       c_skip: 64
       no_heads: 8
       no_qk_points: 8
@@ -71,11 +73,13 @@ model:
       num_blocks: 4
 
 experiment:
-  debug: True # False
+  debug: False
   seed: 123
   num_devices: 2
+  noise_trans: True
+  noise_rots: True
   batch_ot:
-    enabled: False
+    enabled: True
     noise_per_sample: 1
   training:
     loss: bb_atom_loss
@@ -85,7 +89,7 @@ experiment:
     project: se3-fm
     tags: ['baseline']
   optimizer:
-    lr: 0.001
+    lr: 0.0001
   trainer:
     overfit_batches: 0
     min_epochs: 1 # prevents early stopping

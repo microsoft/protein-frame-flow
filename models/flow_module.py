@@ -20,12 +20,8 @@ from openfold.utils import superimposition
 from data import so3_utils
 from pytorch_lightning.loggers.wandb import WandbLogger
 from scipy.optimize import linear_sum_assignment
+from openfold.utils import rigid_utils as ru
 
-
-to_numpy = lambda x: x.detach().cpu().numpy()
-
-NM_TO_ANG_SCALE = 10.0
-ANG_TO_NM_SCALE = 1 / NM_TO_ANG_SCALE
 CA_IDX = metrics.CA_IDX
 
 
@@ -80,7 +76,7 @@ class FlowModule(LightningModule):
         num_batch, num_res = trans_1.shape[:2]
 
         num_noise = num_batch * batch_ot_cfg.noise_per_sample
-        trans_nm_1 = trans_1 * ANG_TO_NM_SCALE
+        trans_nm_1 = trans_1 * du.ANG_TO_NM_SCALE
         trans_nm_0 = self._centered_gaussian((num_noise, num_res, 3))
 
         noise_idx, gt_idx = torch.where(torch.ones(num_noise, num_batch))
@@ -112,18 +108,25 @@ class FlowModule(LightningModule):
             trans_nm_0 = self._batch_ot(gt_trans_1)
         else:
             trans_nm_0 = self._centered_gaussian(gt_trans_1.shape)
-        trans_nm_0 = trans_nm_0.to(device)
-        trans_nm_t = (1 - t) * trans_nm_0 + t * gt_trans_1 * ANG_TO_NM_SCALE
-        trans_nm_t *= res_mask[..., None]
-        batch['trans_t'] = trans_nm_t * NM_TO_ANG_SCALE
 
-        rotmats_0 = torch.tensor(Rotation.random(num_res).as_matrix()).float().to(device)
-        rotmats_t = so3_utils.geodesic_t(t, gt_rotmats_1, rotmats_0)
-        rotmats_t = (
-            rotmats_t * res_mask[..., None, None]
-            + torch.eye(3).to(device)[None, None] * (1 - res_mask[..., None, None])
-        )
-        batch['rotmats_t'] = rotmats_t
+        if self._exp_cfg.noise_trans:
+            trans_nm_0 = trans_nm_0.to(device)
+            trans_nm_t = (1 - t) * trans_nm_0 + t * gt_trans_1 * du.ANG_TO_NM_SCALE
+            trans_nm_t *= res_mask[..., None]
+            batch['trans_t'] = trans_nm_t * du.NM_TO_ANG_SCALE
+        else:
+            batch['trans_t'] = gt_trans_1
+
+        if self._exp_cfg.noise_rots:
+            rotmats_0 = torch.tensor(Rotation.random(num_res).as_matrix()).float().to(device)
+            rotmats_t = so3_utils.geodesic_t(t, gt_rotmats_1, rotmats_0)
+            rotmats_t = (
+                rotmats_t * res_mask[..., None, None]
+                + torch.eye(3).to(device)[None, None] * (1 - res_mask[..., None, None])
+            )
+            batch['rotmats_t'] = rotmats_t
+        else:
+            batch['rotmats_t'] = gt_rotmats_1
         return batch
 
     def model_step(self, batch: Any):
@@ -155,21 +158,31 @@ class FlowModule(LightningModule):
         if self._exp_cfg.training.superimpose == 'all_atom':
             flat_pred_bb_atoms = pred_bb_atoms.reshape(num_batch, num_res * 4, 3)
             flat_gt_bb_atoms = gt_bb_atoms.reshape(num_batch, num_res * 4, 3)
-            gt_bb_atoms, _ = superimposition.superimpose(flat_pred_bb_atoms, flat_gt_bb_atoms)
+            gt_bb_atoms, _, super_rot, _ = superimposition.superimpose(
+                flat_pred_bb_atoms, flat_gt_bb_atoms, return_transform=True)
             gt_bb_atoms = gt_bb_atoms.reshape(num_batch, num_res, 4, 3)
-            gt_trans_1 = gt_bb_atoms[:, :, 1] * NM_TO_ANG_SCALE
+            gt_trans_1 = gt_bb_atoms[:, :, 1]
+            gt_rotmats_1 = ru.rot_matmul(gt_rotmats_1, super_rot) 
+            pred_rotvecs_1 = so3_utils.rotmat_to_rotvec(gt_rotmats_1)
+            gt_rot_vf = so3_utils.rot_vf(
+                noisy_batch['rotmats_t'].type(torch.float32),
+                gt_rotmats_1.type(torch.float32)
+            )
         elif self._exp_cfg.training.superimpose == 'c_alpha':
-            gt_trans_1, _, super_rot, super_tran = superimposition.superimpose(pred_trans_1, gt_trans_1, return_transform=True)
+            gt_trans_1, _, super_rot, super_tran = superimposition.superimpose(
+                pred_trans_1, gt_trans_1, return_transform=True)
             super_tran = super_tran.type(gt_bb_atoms.dtype)
             super_rot = super_rot.type(gt_bb_atoms.dtype)
             gt_bb_atoms = torch.einsum('bnai,bij->bnaj', gt_bb_atoms, super_rot) + super_tran[:, None, None, :]
+            gt_rotmats_1 = ru.rot_matmul(gt_rotmats_1, super_rot) 
+            pred_rotvecs_1 = so3_utils.rotmat_to_rotvec(gt_rotmats_1)
         else:
             raise ValueError(f'Unknown superimpose method {self._exp_cfg.training.superimpose}')
         
-        gt_bb_atoms *= ANG_TO_NM_SCALE
-        pred_bb_atoms *= ANG_TO_NM_SCALE
-        gt_trans_1 *= ANG_TO_NM_SCALE
-        pred_trans_1 *= ANG_TO_NM_SCALE
+        gt_bb_atoms *= du.ANG_TO_NM_SCALE
+        pred_bb_atoms *= du.ANG_TO_NM_SCALE
+        gt_trans_1 *= du.ANG_TO_NM_SCALE
+        pred_trans_1 *= du.ANG_TO_NM_SCALE
         
         num_res_per_batch = torch.sum(res_mask, dim=-1)
 
@@ -378,8 +391,8 @@ class FlowModule(LightningModule):
     
 def t_stratified_loss(batch_t, batch_loss, num_bins=4, loss_name=None):
     """Stratify loss by binning t."""
-    batch_t = to_numpy(batch_t)
-    batch_loss = to_numpy(batch_loss)
+    batch_t = du.to_numpy(batch_t)
+    batch_loss = du.to_numpy(batch_loss)
     flat_losses = batch_loss.flatten()
     flat_t = batch_t.flatten()
     bin_edges = np.linspace(0.0, 1.0 + 1e-3, num_bins+1)

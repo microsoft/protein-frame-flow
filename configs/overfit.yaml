@@ -9,38 +9,15 @@ data:
     subset: 2
   sampler:
     num_batches: 1000
-    batch_repeats: 64
+    batch_repeats: 20
   loader:
     num_workers: 10
     prefetch_factor: 100
 
-model:
-  t_embed_size: 64
-  index_embed_size: 64
-  node_embed_size: 64
-  edge_embed_size: 64
-  dropout: 0.0
-  ipa:
-    c_s: ${model.node_embed_size}
-    c_z: ${model.edge_embed_size}
-    c_hidden: 64
-    c_skip: 32
-    no_heads: 2
-    no_qk_points: 8
-    no_v_points: 8
-    seq_tfmr_num_heads: 2
-    seq_tfmr_num_layers: 1
-    num_blocks: 2
-
 experiment:
   debug: False
-  num_devices: 1
   batch_ot:
-    enabled: False
-  optimizer:
-    lr: 0.001
-  sampling:
-    num_timesteps: 100
+    enabled: True
   wandb:
-    name: overfit_subset_${data.dataset.subset}_superimpose_${experiment.training.superimpose}_batch_ot_${experiment.batch_ot.enabled}
+    name: overfit_subset_${data.dataset.subset}
     tags: ['overfit']

@@ -1,0 +1,9 @@
+defaults:
+  - base
+  - _self_
+
+experiment:
+  noise_rots: True
+  wandb:
+    name: only_noise_trans
+    tags: ['only_trans']

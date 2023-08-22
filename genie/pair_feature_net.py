@@ -48,7 +48,7 @@ class PairFeatureNet(nn.Module):
 		return p
 
 	def template(self, t):
-		return self.linear_template(self.template_fn(t))
+		return self.linear_template(self.template_fn(t * 0.1))
 
 	def forward(self, s, t, p_mask):
 		# Input: [b, n_res, c_s]

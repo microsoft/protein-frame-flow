@@ -150,10 +150,6 @@ class VFModel(nn.Module):
         init_edge_embed = self.edge_embedder(init_edge_feats)
         init_edge_embed = init_edge_embed.reshape([num_batch, num_res, num_res, -1])
         edge_mask = node_mask[..., None] * node_mask[..., None, :]
-        
-        # edge_mask = node_mask[..., None] * node_mask[..., None, :]
-        # init_edge_embed = init_node_embed[:, :, None, :] + init_node_embed[:, None, :, :]
-        # init_edge_embed = init_edge_embed.type(torch.float32)
 
         # Initial rigids
         trans_t = input_feats['trans_t'].type(torch.float32)
