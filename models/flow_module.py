@@ -80,14 +80,16 @@ class FlowModule(LightningModule):
         trans_nm_1 = trans_1 * du.ANG_TO_NM_SCALE
 
         noise_idx, gt_idx = torch.where(torch.ones(num_noise, num_batch))
-
-        _, aligned_rmsd = superimposition.superimpose(trans_nm_0[noise_idx], trans_nm_1[gt_idx])
+        align_ref = trans_nm_0[noise_idx]
+        _, aligned_rmsd = superimposition.superimpose(
+            align_ref, trans_nm_1[gt_idx], torch.ones_like(align_ref)[..., 0])
         cost_matrix = du.to_numpy(aligned_rmsd.reshape(num_noise, num_batch))
         noise_perm, gt_perm = linear_sum_assignment(cost_matrix)
         noise_perm = [x[1] for x in sorted(zip(gt_perm, noise_perm), key=lambda x: x[0])]
         trans_nm_0 = trans_nm_0[noise_perm]
         # TODO: We don't need to do alignment twice.
-        aligned_trans_nm_0, _ = superimposition.superimpose(trans_nm_1, trans_nm_0)
+        aligned_trans_nm_0, _ = superimposition.superimpose(
+            trans_nm_1, trans_nm_0, torch.ones_like(trans_nm_1)[..., 0])
         return aligned_trans_nm_0
 
     def _centered_gaussian(self, trans_reference):
@@ -101,7 +103,7 @@ class FlowModule(LightningModule):
         res_mask = batch['res_mask']
         device = gt_trans_1.device
         num_batch, num_res, _ = gt_trans_1.shape
-        t = torch.rand(num_batch, 1, 1)
+        t = torch.rand(num_batch, 1, 1, device=device)
         batch['t'] = t[:, 0]
 
         trans_nm_0 = self._centered_gaussian(gt_trans_1)
@@ -157,28 +159,15 @@ class FlowModule(LightningModule):
         pred_bb_atoms = _to_atoms(pred_trans_1, pred_rotmats_1)[:, :, :4]
         pred_bb_atoms = pred_bb_atoms.to(device) * res_mask[..., None, None]
 
-        if self._exp_cfg.training.superimpose == 'all_atom':
-            flat_pred_bb_atoms = pred_bb_atoms.reshape(num_batch, num_res * 4, 3)
-            flat_gt_bb_atoms = gt_bb_atoms.reshape(num_batch, num_res * 4, 3)
-            gt_bb_atoms, _, super_rot, _ = superimposition.superimpose(
-                flat_pred_bb_atoms, flat_gt_bb_atoms, return_transform=True)
-            gt_bb_atoms = gt_bb_atoms.reshape(num_batch, num_res, 4, 3)
-            gt_trans_1 = gt_bb_atoms[:, :, 1]
-            gt_rotmats_1 = ru.rot_matmul(gt_rotmats_1, super_rot) 
-            pred_rotvecs_1 = so3_utils.rotmat_to_rotvec(gt_rotmats_1)
-            gt_rot_vf = so3_utils.rot_vf(
-                noisy_batch['rotmats_t'].type(torch.float32),
-                gt_rotmats_1.type(torch.float32)
-            )
-        elif self._exp_cfg.training.superimpose == 'c_alpha':
+        if self._exp_cfg.training.superimpose == 'c_alpha':
             gt_trans_1, _, super_rot, super_tran = superimposition.superimpose(
-                pred_trans_1, gt_trans_1, return_transform=True)
+                pred_trans_1, gt_trans_1, res_mask, return_transform=True)
             super_tran = super_tran.type(gt_bb_atoms.dtype)
             super_rot = super_rot.type(gt_bb_atoms.dtype)
             gt_bb_atoms = torch.einsum('bnai,bij->bnaj', gt_bb_atoms, super_rot) + super_tran[:, None, None, :]
-            gt_rotmats_1 = ru.rot_matmul(gt_rotmats_1, super_rot) 
+            gt_rotmats_1 = ru.rot_matmul(gt_rotmats_1, super_rot[:, None]) 
             pred_rotvecs_1 = so3_utils.rotmat_to_rotvec(gt_rotmats_1)
-        else:
+        elif self._exp_cfg.training.superimpose is not None:
             raise ValueError(f'Unknown superimpose method {self._exp_cfg.training.superimpose}')
         
         gt_bb_atoms *= du.ANG_TO_NM_SCALE
@@ -275,10 +264,14 @@ class FlowModule(LightningModule):
         res_mask = batch['res_mask']
         device = res_mask.device
         num_batch, num_res = res_mask.shape[:2]
-        trans_0 = self._centered_gaussian((num_batch, num_res, 3)).to(device) * NM_TO_ANG_SCALE
+        trans_0 = self._centered_gaussian(batch['trans_1']) * du.NM_TO_ANG_SCALE
         rots_0 = torch.tensor(
-            Rotation.random(num_batch*num_res).as_matrix()
-        ).float().reshape(num_batch, num_res, 3, 3).to(device)
+            Rotation.random(num_batch*num_res).as_matrix(),
+            device=device,
+            dtype=torch.float32,
+        )
+        if rots_0.ndim == 3:
+            rots_0 = rots_0[None]
         
         trans_traj = [trans_0]
         rots_traj = [rots_0]
@@ -290,8 +283,14 @@ class FlowModule(LightningModule):
             trans_t_1 = trans_traj[-1]
             rots_t_1 = rots_traj[-1]
             with torch.no_grad():
-                batch['trans_t'] = trans_t_1
-                batch['rotmats_t'] = rots_t_1
+                if self._exp_cfg.noise_trans:
+                    batch['trans_t'] = trans_t_1
+                else:
+                    batch['trans_t'] = batch['trans_1']
+                if self._exp_cfg.noise_rots:
+                    batch['rotmats_t'] = rots_t_1
+                else:
+                    batch['rotmats_t'] = batch['rotmats_1']
                 batch['t'] = torch.ones((num_batch, 1)).to(device) * t_1
                 model_out = self.forward(batch)
                 model_outputs.append(
@@ -321,7 +320,8 @@ class FlowModule(LightningModule):
                 torch.zeros(
                     trans.shape[0],
                     trans.shape[1],
-                    2
+                    2,
+                    device=trans.device
                 )
             )[0]
             atom37 = atom37.detach().cpu()

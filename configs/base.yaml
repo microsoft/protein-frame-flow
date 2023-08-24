@@ -75,15 +75,15 @@ model:
 experiment:
   debug: False
   seed: 123
-  num_devices: 2
+  num_devices: 1
   noise_trans: True
   noise_rots: True
   batch_ot:
     enabled: True
     noise_per_sample: 1
   training:
-    loss: bb_atom_loss
-    superimpose: all_atom  # c_alpha
+    loss: se3_vf_loss
+    superimpose: c_alpha
   wandb:
     name: baseline
     project: se3-fm

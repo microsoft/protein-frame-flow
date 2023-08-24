@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 from Bio.SVDSuperimposer import SVDSuperimposer
 import numpy as np
 import torch
@@ -34,17 +33,16 @@ def _superimpose_np(reference, coords):
     sup.run()
     return sup
 
-
 def _superimpose_single(reference, coords):
     reference_np = reference.detach().cpu().numpy()    
     coords_np = coords.detach().cpu().numpy()
     sup = _superimpose_np(reference_np, coords_np)
-    superimposed, rmsd = sup.get_transformed(), sup.get_rms()
     rot, tran = sup.get_rotran()
-    return coords.new_tensor(superimposed), coords.new_tensor(rmsd), coords.new_tensor(rot), coords.new_tensor(tran)
+    superimposed, rmsd = sup.get_transformed(), sup.get_rms()
+    return coords.new_tensor(superimposed), coords.new_tensor(rmsd), rot, tran
 
 
-def superimpose(reference, coords, return_transform=False):
+def superimpose(reference, coords, mask, return_transform=False):
     """
         Superimposes coordinates onto a reference by minimizing RMSD using SVD.
 
@@ -53,27 +51,50 @@ def superimpose(reference, coords, return_transform=False):
                 [*, N, 3] reference tensor
             coords:
                 [*, N, 3] tensor
+            mask:
+                [*, N] tensor
         Returns:
             A tuple of [*, N, 3] superimposed coords and [*] final RMSDs.
     """
+    def select_unmasked_coords(coords, mask):
+        return torch.masked_select(
+            coords,
+            (mask > 0.)[..., None],
+        ).reshape(-1, 3)
+
     batch_dims = reference.shape[:-2]
     flat_reference = reference.reshape((-1,) + reference.shape[-2:])
     flat_coords = coords.reshape((-1,) + reference.shape[-2:])
+    flat_mask = mask.reshape((-1,) + mask.shape[-1:])
     superimposed_list = []
     rmsds = []
-    rots_list = []
-    trans_list = []
-    for r, c in zip(flat_reference, flat_coords):
-       superimposed, rmsd, rot, tran = _superimpose_single(r, c)
-       rots_list.append(rot)
-       trans_list.append(tran)
-       superimposed_list.append(superimposed)
-       rmsds.append(rmsd)
+    rots = []
+    trans = []
+    for r, c, m in zip(flat_reference, flat_coords, flat_mask):
+        r_unmasked_coords = select_unmasked_coords(r, m)
+        c_unmasked_coords = select_unmasked_coords(c, m)
+        superimposed, rmsd, rot, tran = _superimpose_single(
+            r_unmasked_coords, 
+            c_unmasked_coords
+        )
+        rots.append(rot)
+        trans.append(tran)
+        # This is very inelegant, but idk how else to invert the masking
+        # procedure.
+        count = 0
+        superimposed_full_size = torch.zeros_like(r)
+        for i, unmasked in enumerate(m):
+            if(unmasked):
+                superimposed_full_size[i] = superimposed[count]
+                count += 1
+
+        superimposed_list.append(superimposed_full_size)
+        rmsds.append(rmsd)
 
     superimposed_stacked = torch.stack(superimposed_list, dim=0)
     rmsds_stacked = torch.stack(rmsds, dim=0)
-    rots_stacked = torch.stack(rots_list, dim=0)
-    trans_stacked = torch.stack(trans_list, dim=0)
+    rots_stacked = torch.tensor(np.stack(rots, axis=0), device=coords.device)
+    trans_stacked = torch.tensor(np.stack(trans, axis=0), device=coords.device)
 
     superimposed_reshaped = superimposed_stacked.reshape(
         batch_dims + coords.shape[-2:]
@@ -81,10 +102,6 @@ def superimpose(reference, coords, return_transform=False):
     rmsds_reshaped = rmsds_stacked.reshape(
         batch_dims
     )
-    rots_reshaped = rots_stacked.reshape(
-        batch_dims + (3, 3))
-    tran_reshaped = trans_stacked.reshape(
-        batch_dims + (3,))
     if return_transform:
-        return superimposed_reshaped, rmsds_reshaped, rots_reshaped, tran_reshaped
+        return superimposed_reshaped, rmsds_reshaped, rots_stacked, trans_stacked
     return superimposed_reshaped, rmsds_reshaped

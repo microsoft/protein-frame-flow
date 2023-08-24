@@ -3,7 +3,14 @@ defaults:
   - _self_
 
 experiment:
-  noise_rots: True
+  noise_rots: False
+  debug: False
+  num_devices: 1
+  batch_ot:
+    enabled: False
+  training:
+    loss: se3_vf_loss
+    superimpose: c_alpha
   wandb:
     name: only_noise_trans
     tags: ['only_trans']
