@@ -28,7 +28,8 @@ CA_IDX = metrics.CA_IDX
 def _to_atoms(trans, rots):
     num_batch, num_res, _ = trans.shape
     final_atom37 = all_atom.compute_backbone(
-        du.create_rigid(rots, trans), torch.zeros(num_batch, num_res, 2)
+        du.create_rigid(rots, trans),
+        torch.zeros(num_batch, num_res, 2, device=trans.device)
     )[0]
     return final_atom37
 
@@ -71,13 +72,12 @@ class FlowModule(LightningModule):
     def forward(self, x):
         return self.model(x)
     
-    def _batch_ot(self, trans_1):
+    def _batch_ot(self, trans_1, trans_nm_0):
         batch_ot_cfg = self._exp_cfg.batch_ot
         num_batch, num_res = trans_1.shape[:2]
 
         num_noise = num_batch * batch_ot_cfg.noise_per_sample
         trans_nm_1 = trans_1 * du.ANG_TO_NM_SCALE
-        trans_nm_0 = self._centered_gaussian((num_noise, num_res, 3))
 
         noise_idx, gt_idx = torch.where(torch.ones(num_noise, num_batch))
 
@@ -89,10 +89,10 @@ class FlowModule(LightningModule):
         # TODO: We don't need to do alignment twice.
         aligned_trans_nm_0, _ = superimposition.superimpose(trans_nm_1, trans_nm_0)
         return aligned_trans_nm_0
-        
-            
-    def _centered_gaussian(self, shape):
-        noise = torch.randn(*shape)
+
+    def _centered_gaussian(self, trans_reference):
+        shape = trans_reference.shape
+        noise = torch.randn(*shape, device=trans_reference.device)
         return noise - torch.mean(noise, dim=-2, keepdims=True)
     
     def _corrupt_batch(self, batch):
@@ -101,16 +101,14 @@ class FlowModule(LightningModule):
         res_mask = batch['res_mask']
         device = gt_trans_1.device
         num_batch, num_res, _ = gt_trans_1.shape
-        t = torch.rand(num_batch, 1, 1).to(device)
+        t = torch.rand(num_batch, 1, 1)
         batch['t'] = t[:, 0]
 
+        trans_nm_0 = self._centered_gaussian(gt_trans_1)
         if self._exp_cfg.batch_ot.enabled:
-            trans_nm_0 = self._batch_ot(gt_trans_1)
-        else:
-            trans_nm_0 = self._centered_gaussian(gt_trans_1.shape)
+            trans_nm_0 = self._batch_ot(gt_trans_1, trans_nm_0)
 
         if self._exp_cfg.noise_trans:
-            trans_nm_0 = trans_nm_0.to(device)
             trans_nm_t = (1 - t) * trans_nm_0 + t * gt_trans_1 * du.ANG_TO_NM_SCALE
             trans_nm_t *= res_mask[..., None]
             batch['trans_t'] = trans_nm_t * du.NM_TO_ANG_SCALE
@@ -118,11 +116,15 @@ class FlowModule(LightningModule):
             batch['trans_t'] = gt_trans_1
 
         if self._exp_cfg.noise_rots:
-            rotmats_0 = torch.tensor(Rotation.random(num_res).as_matrix()).float().to(device)
+            rotmats_0 = torch.tensor(
+                Rotation.random(num_res).as_matrix(),
+                device=device,
+                dtype=torch.float32
+            )
             rotmats_t = so3_utils.geodesic_t(t, gt_rotmats_1, rotmats_0)
             rotmats_t = (
                 rotmats_t * res_mask[..., None, None]
-                + torch.eye(3).to(device)[None, None] * (1 - res_mask[..., None, None])
+                + torch.eye(3, device=device)[None, None] * (1 - res_mask[..., None, None])
             )
             batch['rotmats_t'] = rotmats_t
         else:

@@ -21,9 +21,9 @@ def get_index_embedding(indices, embed_size, max_len=2056):
     """
     K = torch.arange(embed_size//2, device=indices.device)
     pos_embedding_sin = torch.sin(
-        indices[..., None] * math.pi / (max_len**(2*K[None]/embed_size))).to(indices.device)
+        indices[..., None] * math.pi / (max_len**(2*K[None]/embed_size)))
     pos_embedding_cos = torch.cos(
-        indices[..., None] * math.pi / (max_len**(2*K[None]/embed_size))).to(indices.device)
+        indices[..., None] * math.pi / (max_len**(2*K[None]/embed_size)))
     pos_embedding = torch.cat([
         pos_embedding_sin, pos_embedding_cos], axis=-1)
     return pos_embedding
@@ -35,7 +35,7 @@ def get_timestep_embedding(timesteps, embedding_dim, max_positions=1000):
     half_dim = embedding_dim // 2
     emb = math.log(max_positions) / (half_dim - 1)
     emb = torch.exp(torch.arange(half_dim, dtype=torch.float32, device=timesteps.device) * -emb)
-    emb = timesteps.float()[:, None] * emb[None, :]
+    emb = timesteps[:, None] * emb[None, :]
     emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
     if embedding_dim % 2 == 1:  # zero pad
         emb = nn.F.pad(emb, (0, 1), mode='constant')
@@ -123,15 +123,15 @@ class VFModel(nn.Module):
         device = node_mask.device
         num_batch = node_mask.shape[0]
         num_res = node_mask.shape[1]
-        node_indices = torch.arange(num_res)
+        node_indices = torch.arange(num_res, device=device)
         index_embed = get_index_embedding(
             node_indices,
             self._model_conf.index_embed_size
-        )[None].repeat(num_batch, 1, 1).type(torch.float32).to(device)
+        )[None].repeat(num_batch, 1, 1)
         t_embed = get_timestep_embedding(
             input_feats['t'][:, 0],
             self._model_conf.t_embed_size
-        )[:, None, :].repeat(1, num_res, 1).type(torch.float32).to(device)
+        )[:, None, :].repeat(1, num_res, 1)
         init_node_feats = torch.concat(
             [index_embed, t_embed], dim=-1)
         init_node_embed = self.node_embedder(init_node_feats)
@@ -142,7 +142,7 @@ class VFModel(nn.Module):
         rel_seq_embed = get_index_embedding(
             rel_seq_offset,
             self._model_conf.index_embed_size
-        )[None].repeat(num_batch, 1, 1).type(torch.float32).to(device)
+        )[None].repeat(num_batch, 1, 1)
         cross_node_embed = self._cross_concat(init_node_embed, num_batch, num_res)
         init_edge_feats = torch.concat([
            cross_node_embed, rel_seq_embed
@@ -152,8 +152,8 @@ class VFModel(nn.Module):
         edge_mask = node_mask[..., None] * node_mask[..., None, :]
 
         # Initial rigids
-        trans_t = input_feats['trans_t'].type(torch.float32)
-        rotmats_t = input_feats['rotmats_t'].type(torch.float32)
+        trans_t = input_feats['trans_t']
+        rotmats_t = input_feats['rotmats_t']
         curr_rigids = du.create_rigid(rotmats_t, trans_t)
 
         # Main trunk
@@ -189,7 +189,7 @@ class VFModel(nn.Module):
 
         curr_rigids = self.rigids_nm_to_ang(curr_rigids)
         pred_trans = curr_rigids.get_trans()
-        pred_rots = curr_rigids.get_rots().get_rot_mats().type(torch.float32)
+        pred_rots = curr_rigids.get_rots().get_rot_mats()
         rots_vf = so3_utils.rot_vf(rotmats_t, pred_rots)
 
         return {
