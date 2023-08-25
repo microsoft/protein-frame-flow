@@ -33,6 +33,42 @@ def _to_atoms(trans, rots):
     )[0]
     return final_atom37
 
+def kabsch_cost_matrix(trans_nm_0, trans_nm_1):
+    num_noise = trans_nm_0.shape[0]
+    num_batch = trans_nm_1.shape[0]
+    noise_idx, gt_idx = torch.where(torch.ones(num_noise, num_batch))
+    align_ref = trans_nm_0[noise_idx]
+    _, aligned_rmsd = superimposition.superimpose(
+        align_ref, trans_nm_1[gt_idx], torch.ones_like(align_ref)[..., 0])
+    cost_matrix = du.to_numpy(aligned_rmsd.reshape(num_noise, num_batch))
+    return cost_matrix
+    # num_noise = trans_nm_0.shape[0]
+    # num_batch = trans_nm_1.shape[0]
+    # noise_idx, gt_idx = torch.where(torch.ones(num_noise, num_batch))
+    # _, aligned_rmsd = superimposition.superimpose(trans_nm_0[noise_idx], trans_nm_1[gt_idx])
+    # cost_matrix = du.to_numpy(aligned_rmsd.reshape(num_noise, num_batch))
+    # return cost_matrix
+
+
+def get_dist_2d(points):
+    return torch.triu(
+        torch.linalg.norm(points[:, None, :, :] - points[:, :, None, :], dim=-1),
+        diagonal=1)
+
+
+def dist_cost_matrix(trans_nm_0, trans_nm_1, mask):
+    num_res = trans_nm_0.shape[1]
+    num_dists = num_res**2 // 2 - num_res
+    dist_mask = mask[:, None, :] * mask[:, :, None]
+    dist_2d_trans_nm_0 = get_dist_2d(trans_nm_0)
+    dist_2d_trans_nm_1 = get_dist_2d(trans_nm_1) * dist_mask
+
+    cost_matrix = torch.sum(
+        (dist_2d_trans_nm_0[:, None, :, :] - dist_2d_trans_nm_1[None, :, :, :])**2,
+        dim=(-1, -2)
+    ) / num_dists
+    return du.to_numpy(cost_matrix)
+
 
 class FlowModule(LightningModule):
 
@@ -72,12 +108,14 @@ class FlowModule(LightningModule):
     def forward(self, x):
         return self.model(x)
     
-    def _batch_ot(self, trans_1, trans_nm_0):
+    def _batch_ot(self, trans_1, mask):
         batch_ot_cfg = self._exp_cfg.batch_ot
         num_batch, num_res = trans_1.shape[:2]
 
         num_noise = num_batch * batch_ot_cfg.noise_per_sample
         trans_nm_1 = trans_1 * du.ANG_TO_NM_SCALE
+        trans_nm_0 = self._centered_gaussian(
+            (num_noise, num_res, 3), mask.device)
 
         noise_idx, gt_idx = torch.where(torch.ones(num_noise, num_batch))
         align_ref = trans_nm_0[noise_idx]
@@ -92,9 +130,26 @@ class FlowModule(LightningModule):
             trans_nm_1, trans_nm_0, torch.ones_like(trans_nm_1)[..., 0])
         return aligned_trans_nm_0
 
-    def _centered_gaussian(self, trans_reference):
-        shape = trans_reference.shape
-        noise = torch.randn(*shape, device=trans_reference.device)
+    # def _batch_ot(self, trans_nm_1, mask):
+    #     batch_ot_cfg = self._exp_cfg.batch_ot
+    #     num_batch, num_res = trans_nm_1.shape[:2]
+
+    #     num_noise = num_batch * batch_ot_cfg.noise_per_sample
+    #     trans_nm_0 = self._centered_gaussian(
+    #         (num_noise, num_res, 3), mask.device)
+    #     if self._exp_cfg.batch_ot.cost == 'kabsch':
+    #         cost_matrix = kabsch_cost_matrix(trans_nm_0, trans_nm_1)
+    #     elif self._exp_cfg.batch_ot.cost == 'dist':
+    #         cost_matrix = dist_cost_matrix(trans_nm_0, trans_nm_1, mask)
+    #     else:
+    #         raise ValueError(f'Unrecognized cost function {self._exp_cfg.batch_ot.cost}')
+    #     noise_perm, gt_perm = linear_sum_assignment(cost_matrix)
+    #     noise_perm = [x[1] for x in sorted(zip(gt_perm, noise_perm), key=lambda x: x[0])]
+    #     trans_nm_0 = trans_nm_0[noise_perm]
+    #     return trans_nm_0
+
+    def _centered_gaussian(self, shape, device):
+        noise = torch.randn(*shape, device=device)
         return noise - torch.mean(noise, dim=-2, keepdims=True)
     
     def _corrupt_batch(self, batch):
@@ -106,9 +161,10 @@ class FlowModule(LightningModule):
         t = torch.rand(num_batch, 1, 1, device=device)
         batch['t'] = t[:, 0]
 
-        trans_nm_0 = self._centered_gaussian(gt_trans_1)
         if self._exp_cfg.batch_ot.enabled:
-            trans_nm_0 = self._batch_ot(gt_trans_1, trans_nm_0)
+            trans_nm_0 = self._batch_ot(gt_trans_1, res_mask)
+        else:
+            trans_nm_0 = self._centered_gaussian(gt_trans_1.shape, device) 
 
         if self._exp_cfg.noise_trans:
             trans_nm_t = (1 - t) * trans_nm_0 + t * gt_trans_1 * du.ANG_TO_NM_SCALE
@@ -264,7 +320,7 @@ class FlowModule(LightningModule):
         res_mask = batch['res_mask']
         device = res_mask.device
         num_batch, num_res = res_mask.shape[:2]
-        trans_0 = self._centered_gaussian(batch['trans_1']) * du.NM_TO_ANG_SCALE
+        trans_0 = self._centered_gaussian(batch['trans_1'].shape, device) * du.NM_TO_ANG_SCALE
         rots_0 = torch.tensor(
             Rotation.random(num_batch*num_res).as_matrix(),
             device=device,

@@ -1062,6 +1062,26 @@ class Rigid:
 
         return Rigid(new_rots, new_translation)
 
+    def compose_tran_update_vec(self, 
+        t_vec: torch.Tensor,
+        update_mask: torch.Tensor=None,
+    ):
+        """
+            Composes the transformation with a quaternion update vector of
+            shape [*, 3], where columns represent a 3D translation.
+
+            Args:
+                q_vec: The quaternion update vector.
+            Returns:
+                The composed transformation.
+        """
+        trans_update = self._rots.apply(t_vec)
+        if update_mask is not None:
+            trans_update = trans_update * update_mask
+        new_translation = self._trans + trans_update
+
+        return Rigid(self._rots, new_translation)
+
     def compose(self,
         r,
     ):

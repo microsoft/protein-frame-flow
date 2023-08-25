@@ -60,10 +60,13 @@ model:
     node_embed_size: 256
     edge_embed_size: 128
     dropout: 0.0
+    use_rot_updates: True
+    predict_rot_vf: False
     ipa:
       c_s: ${model.framediff.node_embed_size}
       c_z: ${model.framediff.edge_embed_size}
       c_hidden: 128
+      use_skip: True
       c_skip: 64
       no_heads: 8
       no_qk_points: 8
@@ -80,6 +83,7 @@ experiment:
   noise_rots: True
   batch_ot:
     enabled: True
+    cost: kabsch
     noise_per_sample: 1
   training:
     loss: se3_vf_loss

@@ -530,7 +530,7 @@ class BackboneUpdate(nn.Module):
     Implements part of Algorithm 23.
     """
 
-    def __init__(self, c_s):
+    def __init__(self, c_s, use_rot_updates):
         """
         Args:
             c_s:
@@ -539,8 +539,9 @@ class BackboneUpdate(nn.Module):
         super(BackboneUpdate, self).__init__()
 
         self.c_s = c_s
-
-        self.linear = Linear(self.c_s, 6, init="final")
+        self._use_rot_updates = use_rot_updates
+        update_dim = 6 if use_rot_updates else 3
+        self.linear = Linear(self.c_s, update_dim, init="final")
 
     def forward(self, s: torch.Tensor):
         """

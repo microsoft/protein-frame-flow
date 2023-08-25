@@ -73,18 +73,23 @@ class VFModel(nn.Module):
             nn.Linear(edge_embed_size, edge_embed_size),
             nn.LayerNorm(edge_embed_size),
         )
+        if self._model_conf.predict_rot_vf:
+            self._rot_vf_head = ipa_pytorch.BackboneUpdate(
+                node_embed_size, False)
 
         # Attention trunk
         self.trunk = nn.ModuleDict()
         for b in range(self._ipa_conf.num_blocks):
             self.trunk[f'ipa_{b}'] = ipa_pytorch.InvariantPointAttention(self._ipa_conf)
             self.trunk[f'ipa_ln_{b}'] = nn.LayerNorm(self._ipa_conf.c_s)
-            self.trunk[f'skip_embed_{b}'] = ipa_pytorch.Linear(
-                self._model_conf.node_embed_size,
-                self._ipa_conf.c_skip,
-                init="final"
-            )
-            tfmr_in = self._ipa_conf.c_s + self._ipa_conf.c_skip
+            tfmr_in = self._ipa_conf.c_s
+            if self._ipa_conf.use_skip:
+                tfmr_in += self._ipa_conf.c_skip
+                self.trunk[f'skip_embed_{b}'] = ipa_pytorch.Linear(
+                    self._model_conf.node_embed_size,
+                    self._ipa_conf.c_skip,
+                    init="final"
+                )
             tfmr_layer = torch.nn.TransformerEncoderLayer(
                 d_model=tfmr_in,
                 nhead=self._ipa_conf.seq_tfmr_num_heads,
@@ -99,7 +104,8 @@ class VFModel(nn.Module):
                 tfmr_in, self._ipa_conf.c_s, init="final")
             self.trunk[f'node_transition_{b}'] = ipa_pytorch.StructureModuleTransition(
                 c=self._ipa_conf.c_s)
-            self.trunk[f'bb_update_{b}'] = ipa_pytorch.BackboneUpdate(self._ipa_conf.c_s)
+            self.trunk[f'bb_update_{b}'] = ipa_pytorch.BackboneUpdate(
+                self._ipa_conf.c_s, self._model_conf.use_rot_updates)
 
             if b < self._ipa_conf.num_blocks-1:
                 # No edge update on the last block.
@@ -169,9 +175,12 @@ class VFModel(nn.Module):
                 node_mask)
             ipa_embed *= node_mask[..., None]
             node_embed = self.trunk[f'ipa_ln_{b}'](node_embed + ipa_embed)
-            seq_tfmr_in = torch.cat([
-                node_embed, self.trunk[f'skip_embed_{b}'](init_node_embed)
-            ], dim=-1)
+            if self._ipa_conf.use_skip:
+                seq_tfmr_in = torch.cat([
+                    node_embed, self.trunk[f'skip_embed_{b}'](init_node_embed)
+                ], dim=-1)
+            else:
+                seq_tfmr_in = node_embed
             seq_tfmr_out = self.trunk[f'seq_tfmr_{b}'](
                 seq_tfmr_in, src_key_padding_mask=1 - node_mask)
             node_embed = node_embed + self.trunk[f'post_tfmr_{b}'](seq_tfmr_out)
@@ -179,8 +188,12 @@ class VFModel(nn.Module):
             node_embed = node_embed * node_mask[..., None]
             rigid_update = self.trunk[f'bb_update_{b}'](
                 node_embed * node_mask[..., None])
-            curr_rigids = curr_rigids.compose_q_update_vec(
-                rigid_update, node_mask[..., None])
+            if self._model_conf.use_rot_updates:
+                curr_rigids = curr_rigids.compose_q_update_vec(
+                    rigid_update, node_mask[..., None])
+            else:
+                curr_rigids = curr_rigids.compose_tran_update_vec(
+                    rigid_update, node_mask[..., None])
 
             if b < self._ipa_conf.num_blocks-1:
                 edge_embed = self.trunk[f'edge_transition_{b}'](
@@ -190,7 +203,11 @@ class VFModel(nn.Module):
         curr_rigids = self.rigids_nm_to_ang(curr_rigids)
         pred_trans = curr_rigids.get_trans()
         pred_rots = curr_rigids.get_rots().get_rot_mats()
-        rots_vf = so3_utils.rot_vf(rotmats_t, pred_rots)
+        if self._model_conf.predict_rot_vf:
+            rots_vf = self._rot_vf_head(node_embed)
+        else:
+            rots_vf = so3_utils.rot_vf(rotmats_t, pred_rots)
+        rots_vf *= node_mask[..., None]
 
         return {
             'pred_trans': pred_trans,
