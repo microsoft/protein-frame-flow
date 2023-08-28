@@ -134,8 +134,9 @@ class FlowModule(LightningModule):
         return batch
 
     def model_step(self, batch: Any):
-        if self._exp_cfg.training.superimpose not in ['all_atom', 'c_alpha', None]:
-            raise ValueError(f'Unknown superimpose method {self._exp_cfg.training.superimpose}')
+        training_cfg = self._exp_cfg.training
+        if training_cfg.superimpose not in ['all_atom', 'c_alpha', None]:
+            raise ValueError(f'Unknown superimpose method {training_cfg.superimpose}')
         gt_trans_1 = batch['trans_1']
         gt_rotmats_1 = batch['rotmats_1']
         gt_rotvecs_1 = so3_utils.rotmat_to_rotvec(gt_rotmats_1)
@@ -159,7 +160,7 @@ class FlowModule(LightningModule):
         pred_bb_atoms = all_atom.to_atom37(pred_trans_1, pred_rotmats_1)[:, :, :4]
         pred_bb_atoms = pred_bb_atoms.to(device) * res_mask[..., None, None]
 
-        if self._exp_cfg.training.superimpose == 'c_alpha':
+        if training_cfg.superimpose == 'c_alpha':
             gt_trans_1, _, super_rot, super_tran = superimposition.superimpose(
                 pred_trans_1, gt_trans_1, res_mask, return_transform=True)
             super_tran = super_tran.type(gt_bb_atoms.dtype)
@@ -168,34 +169,34 @@ class FlowModule(LightningModule):
             gt_rotmats_1 = ru.rot_matmul(gt_rotmats_1, super_rot[:, None]) 
             pred_rotvecs_1 = so3_utils.rotmat_to_rotvec(gt_rotmats_1)
         elif self._exp_cfg.training.superimpose is not None:
-            raise ValueError(f'Unknown superimpose method {self._exp_cfg.training.superimpose}')
+            raise ValueError(f'Unknown superimpose method {training_cfg.superimpose}')
         
         gt_bb_atoms *= du.ANG_TO_NM_SCALE
         pred_bb_atoms *= du.ANG_TO_NM_SCALE
         gt_trans_1 *= du.ANG_TO_NM_SCALE
         pred_trans_1 *= du.ANG_TO_NM_SCALE
         
-        num_res_per_batch = torch.sum(res_mask, dim=-1)
+        loss_denom = torch.sum(res_mask, dim=-1) * 3
 
         bb_atom_loss = torch.sum(
             (gt_bb_atoms - pred_bb_atoms) ** 2 * res_mask[..., None, None],
             dim=(-1, -2, -3)
-        ) / (num_res_per_batch * 3)
+        ) / loss_denom
 
         trans_loss = torch.sum(
             (gt_trans_1 - pred_trans_1) ** 2 * res_mask[..., None],
             dim=(-1, -2)
-        ) / (num_res_per_batch * 3)
+        ) / loss_denom
         
-        rots_loss = 0.5 * torch.sum(
+        rots_loss = training_cfg.rotation_loss_weights * torch.sum(
             (gt_rotvecs_1 - pred_rotvecs_1) ** 2 * res_mask[..., None],
             dim=(-1, -2)
-        ) / (num_res_per_batch * 3)
+        ) / loss_denom
         
-        rots_vf_loss = 0.5 * torch.sum(
+        rots_vf_loss = training_cfg.rotation_loss_weights * torch.sum(
             (gt_rot_vf - model_output['pred_rots_vf']) ** 2 * res_mask[..., None],
             dim=(-1, -2)
-        ) / (num_res_per_batch * 3)
+        ) / loss_denom
 
         se3_loss = trans_loss + rots_loss
         se3_vf_loss = trans_loss + rots_vf_loss

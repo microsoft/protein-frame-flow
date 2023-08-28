@@ -88,6 +88,7 @@ experiment:
   training:
     loss: se3_vf_loss
     superimpose: c_alpha
+    rotation_loss_weights: 0.5
   wandb:
     name: baseline
     project: se3-fm
