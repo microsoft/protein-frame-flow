@@ -4,14 +4,14 @@ defaults:
 
 data:
   dataset:
-    max_num_res: 110
+    max_num_res: 128
     min_num_res: 100
-    subset: 2
+    subset: 100
   sampler:
     num_batches: 1000
 
 experiment:
   debug: False
   wandb:
-    name: overfit_subset_${data.dataset.subset}
-    tags: ['overfit']
+    name: subset_${data.dataset.subset}
+    tags: ['subset']

@@ -480,7 +480,7 @@ def rot_mult(mat_1: torch.Tensor, mat_2: torch.Tensor) -> torch.Tensor:
     return torch.einsum("...ij,...jk->...ik", mat_1, mat_2)
 
 
-def rot_vf(mat_t: torch.Tensor, mat_1: torch.Tensor) -> torch.Tensor:
+def calc_rot_vf(mat_t: torch.Tensor, mat_1: torch.Tensor) -> torch.Tensor:
     """
     Computes the vector field Log_{mat_t}(mat_1).
 
@@ -494,7 +494,7 @@ def rot_vf(mat_t: torch.Tensor, mat_1: torch.Tensor) -> torch.Tensor:
     return rotmat_to_rotvec(rot_mult(rot_transpose(mat_t), mat_1))
 
 
-def geodesic_t(t: float, mat: torch.Tensor, base_mat: torch.Tensor) -> torch.Tensor:
+def geodesic_t(t: float, mat: torch.Tensor, base_mat: torch.Tensor, rot_vf=None) -> torch.Tensor:
     """
     Computes the geodesic at time t. Specifically, R_t = Exp_{base_mat}(t * Log_{base_mat}(mat)).
 
@@ -506,8 +506,9 @@ def geodesic_t(t: float, mat: torch.Tensor, base_mat: torch.Tensor) -> torch.Ten
     Returns:
         Point along geodesic starting at base_mat and ending at mat.
     """
-    vec_vf = rot_vf(base_mat, mat)
-    mat_t = rotvec_to_rotmat(t * vec_vf)
+    if rot_vf is None:
+        rot_vf = calc_rot_vf(base_mat, mat)
+    mat_t = rotvec_to_rotmat(t * rot_vf)
     return torch.einsum("...ij,...jk->...ik", base_mat, mat_t)
 
 

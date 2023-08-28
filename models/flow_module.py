@@ -32,9 +32,12 @@ class FlowModule(LightningModule):
         self._print_logger = logging.getLogger(__name__)
         self._exp_cfg = experiment_cfg
         self._sampling_cfg = experiment_cfg.sampling
+        
         if model_cfg.architecture == 'flower':
+            self._model_cfg = model_cfg.flower
             self.model = Flower(model_cfg.flower)
         elif model_cfg.architecture == 'framediff':
+            self._model_cfg = model_cfg.framediff
             self.model = VFModel(model_cfg.framediff)
         else:
             raise NotImplementedError()
@@ -85,24 +88,25 @@ class FlowModule(LightningModule):
         aligned_nm_1 = aligned_nm_1.reshape(num_noise, num_batch, num_res, 3)
         
         # Compute cost matrix of aligned noise to ground truth
-        cost_matrix = torch.mean(
-            torch.linalg.norm(aligned_nm_0 - aligned_nm_1, dim=-1), dim=-1)
-
-        # Compute optimal assignment
+        batch_mask = batch_mask.reshape(num_noise, num_batch, num_res)
+        cost_matrix = torch.sum(
+            torch.linalg.norm(aligned_nm_0 - aligned_nm_1, dim=-1), dim=-1
+        ) / torch.sum(batch_mask, dim=-1)
         noise_perm, gt_perm = linear_sum_assignment(du.to_numpy(cost_matrix))
         return aligned_nm_0[(tuple(gt_perm), tuple(noise_perm))]
 
     def _centered_gaussian(self, shape, device):
-        noise = torch.randn(*shape, device=device)
+        noise = torch.randn(*shape, device=device) * self._exp_cfg.sampling.prior_scale
         return noise - torch.mean(noise, dim=-2, keepdims=True)
     
-    def _corrupt_batch(self, batch):
+    def _corrupt_batch(self, batch, t=None):
         gt_trans_1 = batch['trans_1']  # Angstrom
         gt_rotmats_1 = batch['rotmats_1']
         res_mask = batch['res_mask']
         device = gt_trans_1.device
         num_batch, num_res, _ = gt_trans_1.shape
-        t = torch.rand(num_batch, 1, 1, device=device)
+        if t is None:
+            t = torch.rand(num_batch, 1, 1, device=device)
         batch['t'] = t[:, 0]
 
         if self._exp_cfg.batch_ot.enabled:
@@ -139,38 +143,53 @@ class FlowModule(LightningModule):
             raise ValueError(f'Unknown superimpose method {training_cfg.superimpose}')
         gt_trans_1 = batch['trans_1']
         gt_rotmats_1 = batch['rotmats_1']
-        gt_rotvecs_1 = so3_utils.rotmat_to_rotvec(gt_rotmats_1)
         res_mask = batch['res_mask']
-        device = res_mask.device
-        num_batch, num_res = res_mask.shape
+        gt_bb_atoms = all_atom.to_atom37(gt_trans_1, gt_rotmats_1)[:, :, :4] 
         
         noisy_batch = self._corrupt_batch(batch)
         model_output = self.model(noisy_batch)
         pred_trans_1 = model_output['pred_trans']
         pred_rotmats_1 = model_output['pred_rotmats']
-        pred_rotvecs_1 = so3_utils.rotmat_to_rotvec(pred_rotmats_1)
+        pred_rots_vf = model_output['pred_rots_vf']
+        pred_rotvecs_1 = so3_utils.rotmat_to_rotvec(gt_rotmats_1)
 
-        gt_rot_vf = so3_utils.rot_vf(
+        if training_cfg.superimpose == 'c_alpha':
+            # Center predicted translations.
+            mean_pos = torch.sum(
+                pred_trans_1, dim=-2
+            ) / torch.sum(res_mask, dim=-1, keepdims=True)
+            pred_trans_1 = pred_trans_1 - mean_pos[:, None, :]
+
+            # Detach predictions s.t. we don't backprop through the alignment.
+            gt_trans_1, _, aligned_rots = du.batch_align_structures(
+                gt_trans_1, pred_trans_1.detach(), mask=res_mask
+            )
+            gt_bb_atoms = torch.einsum('bnai,bji->bnaj', gt_bb_atoms, aligned_rots)
+            #gt_rotmats_1 = ru.rot_matmul(gt_rotmats_1, aligned_rots[:, None].transpose(-1, -2))
+            # gt_rotmats_1 = ru.rot_matmul(aligned_rots[:, None], gt_rotmats_1) 
+            #gt_rotmats_1 = torch.bmm(gt_rotmats_1, aligned_rots)
+            # pred_rotmats_1 = ru.rot_matmul(pred_rotmats_1, aligned_rots[:, None])
+            # gt_trans_1, pred_trans_1, super_rot = du.batch_align_structures(
+            #     gt_trans_1, pred_trans_1, mask=res_mask
+            # )
+            # gt_trans_1, _, super_rot, super_tran = superimposition.superimpose(
+            #     pred_trans_1, gt_trans_1, res_mask, return_transform=True)
+
+            #super_rot = super_rot.type(gt_bb_atoms.dtype)
+            #gt_bb_atoms = torch.einsum('bnai,bij->bnaj', gt_bb_atoms, super_rot)
+            # 
+        elif self._exp_cfg.training.superimpose is not None:
+            raise ValueError(f'Unknown superimpose method {training_cfg.superimpose}')
+
+        gt_rotvecs_1 = so3_utils.rotmat_to_rotvec(gt_rotmats_1)
+        gt_rot_vf = so3_utils.calc_rot_vf(
             noisy_batch['rotmats_t'].type(torch.float32),
             gt_rotmats_1.type(torch.float32)
         )
 
-        gt_bb_atoms = all_atom.to_atom37(gt_trans_1, gt_rotmats_1)[:, :, :4] 
-        gt_bb_atoms = gt_bb_atoms.to(device) * res_mask[..., None, None]
+        pred_rotvecs_1 = so3_utils.rotmat_to_rotvec(pred_rotmats_1)
         pred_bb_atoms = all_atom.to_atom37(pred_trans_1, pred_rotmats_1)[:, :, :4]
-        pred_bb_atoms = pred_bb_atoms.to(device) * res_mask[..., None, None]
 
-        if training_cfg.superimpose == 'c_alpha':
-            gt_trans_1, _, super_rot, super_tran = superimposition.superimpose(
-                pred_trans_1, gt_trans_1, res_mask, return_transform=True)
-            super_tran = super_tran.type(gt_bb_atoms.dtype)
-            super_rot = super_rot.type(gt_bb_atoms.dtype)
-            gt_bb_atoms = torch.einsum('bnai,bij->bnaj', gt_bb_atoms, super_rot) + super_tran[:, None, None, :]
-            gt_rotmats_1 = ru.rot_matmul(gt_rotmats_1, super_rot[:, None]) 
-            pred_rotvecs_1 = so3_utils.rotmat_to_rotvec(gt_rotmats_1)
-        elif self._exp_cfg.training.superimpose is not None:
-            raise ValueError(f'Unknown superimpose method {training_cfg.superimpose}')
-        
         gt_bb_atoms *= du.ANG_TO_NM_SCALE
         pred_bb_atoms *= du.ANG_TO_NM_SCALE
         gt_trans_1 *= du.ANG_TO_NM_SCALE
@@ -194,7 +213,7 @@ class FlowModule(LightningModule):
         ) / loss_denom
         
         rots_vf_loss = training_cfg.rotation_loss_weights * torch.sum(
-            (gt_rot_vf - model_output['pred_rots_vf']) ** 2 * res_mask[..., None],
+            (gt_rot_vf - pred_rots_vf) ** 2 * res_mask[..., None],
             dim=(-1, -2)
         ) / loss_denom
 
@@ -300,10 +319,16 @@ class FlowModule(LightningModule):
 
             pred_trans_1 = model_out['pred_trans']
             pred_rots_1 = model_out['pred_rotmats']
+            pred_rots_vf = model_out['pred_rots_vf']
 
             trans_vf = (pred_trans_1 - trans_t_1) / (1 - t_1)
             trans_t_2 = trans_t_1 + trans_vf * d_t
-            rots_t_2 = so3_utils.geodesic_t(d_t / (1 - t_1), pred_rots_1, rots_t_1)
+            if self._model_cfg.predict_rot_vf:
+                rots_t_2 = so3_utils.geodesic_t(
+                    d_t / (1 - t_1), pred_rots_1, rots_t_1, rot_vf=pred_rots_vf)
+            else:
+                rots_t_2 = so3_utils.geodesic_t(
+                    d_t / (1 - t_1), pred_rots_1, rots_t_1) 
             t_1 = t_2
             if return_traj:
                 trans_traj.append(trans_t_2)

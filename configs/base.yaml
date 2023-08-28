@@ -13,7 +13,7 @@ data:
     prefetch_factor: 10
   sampler:
     max_batch_size: 128
-    max_num_res_squared: 1_000_000
+    max_num_res_squared: 1_500_000
     batch_repeats: 1
     num_batches: null
 
@@ -60,8 +60,8 @@ model:
     node_embed_size: 256
     edge_embed_size: 128
     dropout: 0.0
-    use_rot_updates: True
-    predict_rot_vf: False
+    use_rot_updates: False
+    predict_rot_vf: True
     ipa:
       c_s: ${model.framediff.node_embed_size}
       c_z: ${model.framediff.edge_embed_size}
@@ -78,7 +78,7 @@ model:
 experiment:
   debug: False
   seed: 123
-  num_devices: 1
+  num_devices: 4
   noise_trans: True
   noise_rots: True
   batch_ot:
@@ -87,7 +87,7 @@ experiment:
     noise_per_sample: 1
   training:
     loss: se3_vf_loss
-    superimpose: c_alpha
+    superimpose: null #c_alpha
     rotation_loss_weights: 0.5
   wandb:
     name: baseline
@@ -107,6 +107,7 @@ experiment:
   sampling:
     num_timesteps: 100
     min_t: 1e-3
+    prior_scale: 1.0
   checkpointer:
     dirpath: ckpt/${experiment.wandb.project}/${experiment.wandb.name}/${now:%Y-%m-%d}_${now:%H-%M-%S}
 

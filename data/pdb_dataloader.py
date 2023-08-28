@@ -198,7 +198,7 @@ class LengthBatcher:
         self.shuffle = shuffle
         self.epoch = 0
         self.num_examples = math.ceil(len(self._data_csv) / self.num_replicas)
-        self.max_batch_size =  math.ceil(self._sampler_cfg.max_batch_size / self.num_replicas) 
+        self.max_batch_size =  self._sampler_cfg.max_batch_size
         self._rng = torch.Generator()
 
         self._create_batches()
