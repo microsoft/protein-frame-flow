@@ -3,6 +3,7 @@ import torch
 from openfold.data import data_transforms
 from openfold.np import residue_constants
 from openfold.utils import rigid_utils as ru
+from data import utils as du
 
 Rigid = ru.Rigid
 Rotation = ru.Rotation
@@ -14,6 +15,15 @@ IDEALIZED_POS = torch.tensor(residue_constants.restype_atom14_rigid_group_positi
 DEFAULT_FRAMES = torch.tensor(residue_constants.restype_rigid_group_default_frame)
 ATOM_MASK = torch.tensor(residue_constants.restype_atom14_mask)
 GROUP_IDX = torch.tensor(residue_constants.restype_atom14_to_rigid_group)
+
+
+def to_atom37(trans, rots):
+    num_batch, num_res, _ = trans.shape
+    final_atom37 = compute_backbone(
+        du.create_rigid(rots, trans),
+        torch.zeros(num_batch, num_res, 2, device=trans.device)
+    )[0]
+    return final_atom37
 
 
 def torsion_angles_to_frames(

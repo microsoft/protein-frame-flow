@@ -41,6 +41,39 @@ def create_rigid(rots, trans):
     return Rigid(rots=rots, trans=trans)
 
 
+def batch_align_structures(pos_1, pos_2, mask=None):
+    if pos_1.shape != pos_2.shape:
+        raise ValueError('pos_1 and pos_2 must have the same shape.')
+    if pos_1.ndim != 3:
+        raise ValueError(f'Expected inputs to have shape [B, N, 3]')
+    num_batch = pos_1.shape[0]
+    device = pos_1.device
+    batch_indices = (
+        torch.ones(*pos_1.shape[:2], device=device, dtype=torch.int64) 
+        * torch.arange(num_batch, device=device)[:, None]
+    )
+    flat_pos_1 = pos_1.reshape(-1, 3)
+    flat_pos_2 = pos_2.reshape(-1, 3)
+    flat_batch_indices = batch_indices.reshape(-1)
+    if mask is None:
+        aligned_pos_1, aligned_pos_2, align_rots = align_structures(
+            flat_pos_1, flat_batch_indices, flat_pos_2)
+        aligned_pos_1 = aligned_pos_1.reshape(num_batch, -1, 3)
+        aligned_pos_2 = aligned_pos_2.reshape(num_batch, -1, 3)
+        return aligned_pos_1, aligned_pos_2, align_rots
+
+    flat_mask = mask.reshape(-1).bool()
+    _, _, align_rots = align_structures(
+        flat_pos_1[flat_mask],
+        flat_batch_indices[flat_mask],
+        flat_pos_2[flat_mask]
+    )
+    aligned_pos_1 = torch.bmm(
+        pos_1,
+        align_rots
+    )
+    return aligned_pos_1, pos_2, align_rots
+
 
 def adjust_oxygen_pos(
     atom_37: torch.Tensor, pos_is_known = None

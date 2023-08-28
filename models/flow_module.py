@@ -25,51 +25,6 @@ from openfold.utils import rigid_utils as ru
 CA_IDX = metrics.CA_IDX
 
 
-def _to_atoms(trans, rots):
-    num_batch, num_res, _ = trans.shape
-    final_atom37 = all_atom.compute_backbone(
-        du.create_rigid(rots, trans),
-        torch.zeros(num_batch, num_res, 2, device=trans.device)
-    )[0]
-    return final_atom37
-
-def kabsch_cost_matrix(trans_nm_0, trans_nm_1):
-    num_noise = trans_nm_0.shape[0]
-    num_batch = trans_nm_1.shape[0]
-    noise_idx, gt_idx = torch.where(torch.ones(num_noise, num_batch))
-    align_ref = trans_nm_0[noise_idx]
-    _, aligned_rmsd = superimposition.superimpose(
-        align_ref, trans_nm_1[gt_idx], torch.ones_like(align_ref)[..., 0])
-    cost_matrix = du.to_numpy(aligned_rmsd.reshape(num_noise, num_batch))
-    return cost_matrix
-    # num_noise = trans_nm_0.shape[0]
-    # num_batch = trans_nm_1.shape[0]
-    # noise_idx, gt_idx = torch.where(torch.ones(num_noise, num_batch))
-    # _, aligned_rmsd = superimposition.superimpose(trans_nm_0[noise_idx], trans_nm_1[gt_idx])
-    # cost_matrix = du.to_numpy(aligned_rmsd.reshape(num_noise, num_batch))
-    # return cost_matrix
-
-
-def get_dist_2d(points):
-    return torch.triu(
-        torch.linalg.norm(points[:, None, :, :] - points[:, :, None, :], dim=-1),
-        diagonal=1)
-
-
-def dist_cost_matrix(trans_nm_0, trans_nm_1, mask):
-    num_res = trans_nm_0.shape[1]
-    num_dists = num_res**2 // 2 - num_res
-    dist_mask = mask[:, None, :] * mask[:, :, None]
-    dist_2d_trans_nm_0 = get_dist_2d(trans_nm_0)
-    dist_2d_trans_nm_1 = get_dist_2d(trans_nm_1) * dist_mask
-
-    cost_matrix = torch.sum(
-        (dist_2d_trans_nm_0[:, None, :, :] - dist_2d_trans_nm_1[None, :, :, :])**2,
-        dim=(-1, -2)
-    ) / num_dists
-    return du.to_numpy(cost_matrix)
-
-
 class FlowModule(LightningModule):
 
     def __init__(self, *, model_cfg, experiment_cfg):
@@ -116,29 +71,26 @@ class FlowModule(LightningModule):
         trans_nm_1 = trans_1 * du.ANG_TO_NM_SCALE
 
         # Sampose noise
-        trans_nm_0 = self._centered_gaussian(
-            (num_noise, num_res, 3), mask.device)
-        noise_idx, gt_idx = torch.where(torch.ones(num_noise, num_batch))
+        trans_nm_0 = self._centered_gaussian((num_noise, num_res, 3), device)
 
         # Align noise to ground truth
+        noise_idx, gt_idx = torch.where(torch.ones(num_noise, num_batch))
         batch_nm_0 = trans_nm_0[noise_idx]
         batch_nm_1 = trans_nm_1[gt_idx]
-        batch_indices = (
-            torch.ones(*batch_nm_0.shape[:2], device=device, dtype=torch.int64) 
-            * torch.arange(num_batch*num_noise, device=device)[:, None]
-        )
-        aligned_noise, aligned_gt, _ = du.align_structures(
-            batch_nm_0.reshape(-1, 3), batch_indices.reshape(-1), batch_nm_1.reshape(-1, 3))
-        batch_aligned_noise = aligned_noise.reshape(num_noise, num_batch, num_res, 3)
-        batch_aligned_gt = aligned_gt.reshape(num_noise, num_batch, num_res, 3)
+        batch_mask = mask[gt_idx]
+        aligned_nm_0, aligned_nm_1, _ = du.batch_align_structures(
+            batch_nm_0, batch_nm_1, mask=batch_mask
+        ) 
+        aligned_nm_0 = aligned_nm_0.reshape(num_noise, num_batch, num_res, 3)
+        aligned_nm_1 = aligned_nm_1.reshape(num_noise, num_batch, num_res, 3)
         
         # Compute cost matrix of aligned noise to ground truth
         cost_matrix = torch.mean(
-            torch.linalg.norm(batch_aligned_noise - batch_aligned_gt, dim=-1), dim=-1)
+            torch.linalg.norm(aligned_nm_0 - aligned_nm_1, dim=-1), dim=-1)
 
         # Compute optimal assignment
         noise_perm, gt_perm = linear_sum_assignment(du.to_numpy(cost_matrix))
-        return batch_aligned_noise[(tuple(gt_perm), tuple(noise_perm))]
+        return aligned_nm_0[(tuple(gt_perm), tuple(noise_perm))]
 
     def _centered_gaussian(self, shape, device):
         noise = torch.randn(*shape, device=device)
@@ -202,9 +154,9 @@ class FlowModule(LightningModule):
             gt_rotmats_1.type(torch.float32)
         )
 
-        gt_bb_atoms = _to_atoms(gt_trans_1, gt_rotmats_1)[:, :, :4] 
+        gt_bb_atoms = all_atom.to_atom37(gt_trans_1, gt_rotmats_1)[:, :, :4] 
         gt_bb_atoms = gt_bb_atoms.to(device) * res_mask[..., None, None]
-        pred_bb_atoms = _to_atoms(pred_trans_1, pred_rotmats_1)[:, :, :4]
+        pred_bb_atoms = all_atom.to_atom37(pred_trans_1, pred_rotmats_1)[:, :, :4]
         pred_bb_atoms = pred_bb_atoms.to(device) * res_mask[..., None, None]
 
         if self._exp_cfg.training.superimpose == 'c_alpha':
