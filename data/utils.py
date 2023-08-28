@@ -294,4 +294,4 @@ def align_structures(
         rotation_matrices[batch_indices],
     ).squeeze(1)
 
-    return batch_positions_rotated, reference_positions
+    return batch_positions_rotated, reference_positions, rotation_matrices

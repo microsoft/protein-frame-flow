@@ -111,42 +111,34 @@ class FlowModule(LightningModule):
     def _batch_ot(self, trans_1, mask):
         batch_ot_cfg = self._exp_cfg.batch_ot
         num_batch, num_res = trans_1.shape[:2]
-
+        device = trans_1.device
         num_noise = num_batch * batch_ot_cfg.noise_per_sample
         trans_nm_1 = trans_1 * du.ANG_TO_NM_SCALE
+
+        # Sampose noise
         trans_nm_0 = self._centered_gaussian(
             (num_noise, num_res, 3), mask.device)
-
         noise_idx, gt_idx = torch.where(torch.ones(num_noise, num_batch))
-        align_ref = trans_nm_0[noise_idx]
-        _, aligned_rmsd = superimposition.superimpose(
-            align_ref, trans_nm_1[gt_idx], torch.ones_like(align_ref)[..., 0])
-        cost_matrix = du.to_numpy(aligned_rmsd.reshape(num_noise, num_batch))
-        noise_perm, gt_perm = linear_sum_assignment(cost_matrix)
-        noise_perm = [x[1] for x in sorted(zip(gt_perm, noise_perm), key=lambda x: x[0])]
-        trans_nm_0 = trans_nm_0[noise_perm]
-        # TODO: We don't need to do alignment twice.
-        aligned_trans_nm_0, _ = superimposition.superimpose(
-            trans_nm_1, trans_nm_0, torch.ones_like(trans_nm_1)[..., 0])
-        return aligned_trans_nm_0
 
-    # def _batch_ot(self, trans_nm_1, mask):
-    #     batch_ot_cfg = self._exp_cfg.batch_ot
-    #     num_batch, num_res = trans_nm_1.shape[:2]
+        # Align noise to ground truth
+        batch_nm_0 = trans_nm_0[noise_idx]
+        batch_nm_1 = trans_nm_1[gt_idx]
+        batch_indices = (
+            torch.ones(*batch_nm_0.shape[:2], device=device, dtype=torch.int64) 
+            * torch.arange(num_batch*num_noise, device=device)[:, None]
+        )
+        aligned_noise, aligned_gt, _ = du.align_structures(
+            batch_nm_0.reshape(-1, 3), batch_indices.reshape(-1), batch_nm_1.reshape(-1, 3))
+        batch_aligned_noise = aligned_noise.reshape(num_noise, num_batch, num_res, 3)
+        batch_aligned_gt = aligned_gt.reshape(num_noise, num_batch, num_res, 3)
+        
+        # Compute cost matrix of aligned noise to ground truth
+        cost_matrix = torch.mean(
+            torch.linalg.norm(batch_aligned_noise - batch_aligned_gt, dim=-1), dim=-1)
 
-    #     num_noise = num_batch * batch_ot_cfg.noise_per_sample
-    #     trans_nm_0 = self._centered_gaussian(
-    #         (num_noise, num_res, 3), mask.device)
-    #     if self._exp_cfg.batch_ot.cost == 'kabsch':
-    #         cost_matrix = kabsch_cost_matrix(trans_nm_0, trans_nm_1)
-    #     elif self._exp_cfg.batch_ot.cost == 'dist':
-    #         cost_matrix = dist_cost_matrix(trans_nm_0, trans_nm_1, mask)
-    #     else:
-    #         raise ValueError(f'Unrecognized cost function {self._exp_cfg.batch_ot.cost}')
-    #     noise_perm, gt_perm = linear_sum_assignment(cost_matrix)
-    #     noise_perm = [x[1] for x in sorted(zip(gt_perm, noise_perm), key=lambda x: x[0])]
-    #     trans_nm_0 = trans_nm_0[noise_perm]
-    #     return trans_nm_0
+        # Compute optimal assignment
+        noise_perm, gt_perm = linear_sum_assignment(du.to_numpy(cost_matrix))
+        return batch_aligned_noise[(tuple(gt_perm), tuple(noise_perm))]
 
     def _centered_gaussian(self, shape, device):
         noise = torch.randn(*shape, device=device)
