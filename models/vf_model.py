@@ -206,7 +206,7 @@ class VFModel(nn.Module):
         if self._model_conf.predict_rot_vf:
             rots_vf = self._rot_vf_head(node_embed)
         else:
-            rots_vf = so3_utils.rot_vf(rotmats_t, pred_rots)
+            rots_vf = so3_utils.calc_rot_vf(rotmats_t, pred_rots)
         rots_vf *= node_mask[..., None]
 
         return {

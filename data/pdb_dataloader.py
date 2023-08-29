@@ -223,12 +223,13 @@ class LengthBatcher:
             max_batch_size = min(
                 self.max_batch_size,
                 self._sampler_cfg.max_num_res_squared // seq_len**2 + 1,
-                len(len_df)
             )
             num_batches = math.ceil(len(len_df) / max_batch_size)
             for i in range(num_batches):
                 batch_df = len_df.iloc[i*max_batch_size:(i+1)*max_batch_size]
-                sample_order.append(batch_df['index'].tolist() * self._sampler_cfg.batch_repeats)
+                batch_indices = batch_df['index'].tolist() 
+                batch_repeats = math.floor(max_batch_size / len(batch_indices))
+                sample_order.append(batch_indices * batch_repeats)
         
         # Remove any length bias.
         new_order = torch.randperm(len(sample_order), generator=self._rng).numpy().tolist()

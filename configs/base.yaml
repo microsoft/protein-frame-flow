@@ -94,8 +94,8 @@ model:
     node_embed_size: 256
     edge_embed_size: 128
     dropout: 0.0
-    use_rot_updates: False
-    predict_rot_vf: True
+    use_rot_updates: True
+    predict_rot_vf: False
     ipa:
       c_s: ${model.framediff.node_embed_size}
       c_z: ${model.framediff.edge_embed_size}
@@ -113,16 +113,17 @@ experiment:
   debug: False
   seed: 123
   num_devices: 2
-  warm_start: /data/rsg/chemistry/jyim/projects/flow-matching/ckpt/se3-fm/baseline/2023-08-28_18-52-56/epoch=14-step=59070.ckpt
+  warm_start: null
   noise_trans: True
   noise_rots: True
   batch_ot:
     enabled: True
     cost: kabsch
     noise_per_sample: 1
+    permute: False
   training:
-    loss: se3_vf_loss
-    superimpose: null #c_alpha
+    loss: bb_atom_loss
+    superimpose: null
     rotation_loss_weights: 0.5
   wandb:
     name: baseline
@@ -147,3 +148,4 @@ experiment:
     dirpath: ckpt/${experiment.wandb.project}/${experiment.wandb.name}/${now:%Y-%m-%d}_${now:%H-%M-%S}
     save_last: True
     save_top_k: 3
+    monitor: valid/non_coil_percent
