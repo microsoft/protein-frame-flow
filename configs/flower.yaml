@@ -4,4 +4,10 @@ defaults:
 
 data:
   sampler:
-    max_batch_size: 48
+    max_batch_size: 24
+
+model:
+  architecture: flower
+
+experiment:
+  num_devices: 2

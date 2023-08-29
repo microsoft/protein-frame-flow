@@ -8,7 +8,7 @@ class StructureLayer(nn.Module):
 
     def __init__(self, module_cfg):
         super(StructureLayer, self).__init__()
-
+        self._module_cfg = module_cfg
         ipa_cfg = module_cfg.ipa
         c_s = ipa_cfg.c_s
         self.ipa = InvariantPointAttention(module_cfg.ipa)
@@ -23,7 +23,8 @@ class StructureLayer(nn.Module):
         )
         
         # backbone update
-        self.bb_update = BackboneUpdate(c_s)
+        self.bb_update = BackboneUpdate(
+            c_s, module_cfg.use_rot_updates)
 
     def forward(self, inputs):
         s, p, t, mask = inputs
@@ -32,7 +33,10 @@ class StructureLayer(nn.Module):
         s = self.ipa_dropout(s)
         s = self.ipa_layer_norm(s)
         s = self.transition(s)
-        t = t.compose_q_update_vec(self.bb_update(s), mask[..., None])
+        if self._module_cfg.use_rot_updates:
+            t = t.compose_q_update_vec(self.bb_update(s), mask[..., None])
+        else:
+            t = t.compose_tran_update_vec(self.bb_update(s), mask[..., None])
         outputs = (s, p, t, mask)
         return outputs
 
@@ -53,4 +57,4 @@ class StructureNet(nn.Module):
         t = self.rigids_ang_to_nm(t)
         s, p, t, mask = self.net((s, p, t, mask))
         t = self.rigids_nm_to_ang(t)
-        return t
+        return t, s

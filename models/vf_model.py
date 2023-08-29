@@ -75,7 +75,7 @@ class VFModel(nn.Module):
         )
         if self._model_conf.predict_rot_vf:
             self._rot_vf_head = ipa_pytorch.BackboneUpdate(
-                node_embed_size, False)
+                self._model_conf.node_embed_size, False)
 
         # Attention trunk
         self.trunk = nn.ModuleDict()

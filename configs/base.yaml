@@ -13,15 +13,49 @@ data:
     prefetch_factor: 10
   sampler:
     max_batch_size: 128
-    max_num_res_squared: 1_500_000
+    max_num_res_squared: 1_000_000
     batch_repeats: 1
     num_batches: null
 
 model:
   architecture: framediff
+  flower:
+    node_embed_size: 128
+    edge_embed_size: 128
+    node_features:
+      c_s: ${model.flower.node_embed_size}
+      c_pos_emb: 128
+      c_timestep_emb: 128
+      max_num_res: 2000
+      timestep_int: 1000
+    edge_features:
+      c_s: ${model.flower.node_embed_size}
+      c_p: ${model.flower.edge_embed_size}
+      relpos_k: 32
+    pair_network:
+      c_p: ${model.flower.edge_embed_size}
+      include_mul_update: True
+      inlude_tri_att: False
+      c_hidden_mul: 128
+      pair_transition_n: 4
+      n_pair_transform_layer: 5
+    structure_network:
+      n_structure_layer: 5
+      dropout: 0.0
+      n_structure_transition_layer: 1
+      structure_transition_dropout: 0.0
+      use_rot_updates: False
+      ipa:
+        c_s: ${model.flower.node_embed_size}
+        c_z: ${model.flower.edge_embed_size}
+        c_hidden: 16
+        no_heads: 12
+        no_qk_points: 4
+        no_v_points: 8
+    predict_rot_vf: True
 
   # Architecture based on GENIE
-  flower:
+  genie:
     node_embed_size: 128
     edge_embed_size: 128
     node_features:
@@ -78,7 +112,8 @@ model:
 experiment:
   debug: False
   seed: 123
-  num_devices: 4
+  num_devices: 2
+  warm_start: /data/rsg/chemistry/jyim/projects/flow-matching/ckpt/se3-fm/baseline/2023-08-28_18-52-56/epoch=14-step=59070.ckpt
   noise_trans: True
   noise_rots: True
   batch_ot:
@@ -110,4 +145,5 @@ experiment:
     prior_scale: 1.0
   checkpointer:
     dirpath: ckpt/${experiment.wandb.project}/${experiment.wandb.name}/${now:%Y-%m-%d}_${now:%H-%M-%S}
-
+    save_last: True
+    save_top_k: 3

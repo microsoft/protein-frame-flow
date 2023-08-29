@@ -10,6 +10,7 @@ import tree
 import logging
 from pytorch_lightning import LightningModule
 from models.vf_model import VFModel
+from models.genie_model import Genie
 from models.flower_model import Flower
 from data import all_atom 
 from data import utils as du
@@ -33,12 +34,15 @@ class FlowModule(LightningModule):
         self._exp_cfg = experiment_cfg
         self._sampling_cfg = experiment_cfg.sampling
         
-        if model_cfg.architecture == 'flower':
-            self._model_cfg = model_cfg.flower
-            self.model = Flower(model_cfg.flower)
+        if model_cfg.architecture == 'genie':
+            self._model_cfg = model_cfg.genie
+            self.model = Genie(model_cfg.genie)
         elif model_cfg.architecture == 'framediff':
             self._model_cfg = model_cfg.framediff
             self.model = VFModel(model_cfg.framediff)
+        elif model_cfg.architecture == 'flower':
+            self._model_cfg = model_cfg.flower
+            self.model = Flower(model_cfg.flower)
         else:
             raise NotImplementedError()
         self._sample_write_dir = self._exp_cfg.checkpointer.dirpath
@@ -242,7 +246,7 @@ class FlowModule(LightningModule):
                 final_pos,
                 os.path.join(
                     self._sample_write_dir,
-                    f'sample_{i}_len_{num_res}_epoch_{self.current_epoch}.pdb'),
+                    f'sample_{i}_len_{num_res}.pdb'),
                 no_indexing=False
             )
             if isinstance(self.logger, WandbLogger):
