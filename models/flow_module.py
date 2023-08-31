@@ -116,7 +116,14 @@ class FlowModule(LightningModule):
         device = gt_trans_1.device
         num_batch, num_res, _ = gt_trans_1.shape
         if t is None:
-            t = torch.rand(num_batch, 1, 1, device=device)
+            if self._exp_cfg.training.t_sampler == 'bias':
+                t_1 =  torch.rand(num_batch // 2, 1, 1, device=device) * 0.20
+                t_2 =  torch.rand(num_batch - t_1.shape[0], 1, 1, device=device)
+                t = torch.concat([t_1, t_2], dim=0)
+            elif self._exp_cfg.training.t_sampler == 'uniform':
+                t = torch.rand(num_batch, 1, 1, device=device)
+            else:
+                raise NotImplementedError()
         batch['t'] = t[:, 0]
 
         if self._exp_cfg.batch_ot.enabled:
@@ -394,7 +401,7 @@ class FlowModule(LightningModule):
         Examples:
             https://lightning.ai/docs/pytorch/latest/common/lightning_module.html#configure-optimizers
         """
-        return torch.optim.AdamW(
+        return torch.optim.Adam(
             params=self.model.parameters(),
             **self._exp_cfg.optimizer
         )

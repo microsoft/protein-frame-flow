@@ -1,0 +1,16 @@
+defaults:
+  - base
+  - _self_
+
+experiment:
+  noise_rots: True
+  noise_trans: False
+  debug: False
+  num_devices: 1
+  batch_ot:
+    enabled: False
+  training:
+    loss: se3_vf_loss
+  wandb:
+    name: only_noise_rots
+    tags: ['only_rots']

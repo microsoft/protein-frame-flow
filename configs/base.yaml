@@ -125,6 +125,7 @@ experiment:
     loss: bb_atom_loss
     superimpose: null
     rotation_loss_weights: 0.5
+    t_sampler: uniform
   wandb:
     name: baseline
     project: se3-fm
