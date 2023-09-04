@@ -7,6 +7,7 @@ from models.pair_transition import PairTransition
 from models.triangular_multiplicative_update import (
     TriangleMultiplicationOutgoing,
     TriangleMultiplicationIncoming,
+    SymmetricTriangleUpdate,
 )
 
 class StructureUpdate(nn.Module):
@@ -49,15 +50,21 @@ class EdgeUpdate(nn.Module):
         super(EdgeUpdate, self).__init__()
         
         self._cfg = module_cfg
-        self.tri_mul_out = TriangleMultiplicationOutgoing(
-            self._cfg.c_p,
-            self._cfg.c_hidden_mul
-        )
+        if self._cfg.symmetric_update:
+            self.symm_tri_mul = SymmetricTriangleUpdate(
+                self._cfg.c_p,
+                self._cfg.c_hidden_mul
+            )
+        else:
+            self.tri_mul_out = TriangleMultiplicationOutgoing(
+                self._cfg.c_p,
+                self._cfg.c_hidden_mul
+            )
 
-        self.tri_mul_in = TriangleMultiplicationIncoming(
-            self._cfg.c_p,
-            self._cfg.c_hidden_mul
-        )
+            self.tri_mul_in = TriangleMultiplicationIncoming(
+                self._cfg.c_p,
+                self._cfg.c_hidden_mul
+            )
 
         self.pair_transition = PairTransition(
             self._cfg.c_p,
@@ -65,8 +72,11 @@ class EdgeUpdate(nn.Module):
         )
 
     def forward(self, p, p_mask):
-        p = p + self.tri_mul_out(p, p_mask)
-        p = p + self.tri_mul_in(p, p_mask)
+        if self._cfg.symmetric_update:
+            p = p + self.symm_tri_mul(p, p_mask)
+        else:
+            p = p + self.tri_mul_out(p, p_mask)
+            p = p + self.tri_mul_in(p, p_mask)
         p = p + self.pair_transition(p, p_mask)
         p = p * p_mask.unsqueeze(-1)
         return p

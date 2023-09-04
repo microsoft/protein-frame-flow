@@ -4,10 +4,18 @@ defaults:
 
 data:
   sampler:
-    max_batch_size: 36
+    max_batch_size: 64
 
 model:
   architecture: flower
+
+  flower:
+    edge_features:
+      use_rbf: True
+      num_rbf: 48
+    potential_network:
+      edge_update:
+        symmetric_update: True
 
 experiment:
   num_devices: 2

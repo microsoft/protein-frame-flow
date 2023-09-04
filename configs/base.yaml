@@ -40,6 +40,7 @@ model:
       dropout: 0.0
       edge_update:
         c_p: ${model.flower.edge_embed_size}
+        symmetric_update: False
         c_hidden_mul: 128
         pair_transition_n: 2
         dropout: ${model.flower.potential_network.dropout} 

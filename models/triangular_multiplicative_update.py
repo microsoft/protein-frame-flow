@@ -126,3 +126,69 @@ class TriangleMultiplicationIncoming(TriangleMultiplicativeUpdate):
     __init__ = partialmethod(
         TriangleMultiplicativeUpdate.__init__, _outgoing=False,
     )
+
+
+class SymmetricTriangleUpdate(nn.Module):
+    """Triangle multiplicative update with symmetry."""
+    def __init__(self, c_z, c_hidden):
+        """
+            Args:
+                c_z:
+                    Input channel dimension
+                c:
+                    Hidden channel dimension
+        """ 
+        super(SymmetricTriangleUpdate, self).__init__()
+        self.c_z = c_z
+        self.c_hidden = c_hidden
+
+        self.linear_a_p = Linear(self.c_z, self.c_hidden)
+        self.linear_a_g = Linear(self.c_z, self.c_hidden, init="gating")
+        self.linear_g = Linear(self.c_z, self.c_z, init="gating")
+        self.linear_z = Linear(self.c_hidden, self.c_z, init="final")
+
+        self.layer_norm_in = nn.LayerNorm(self.c_z)
+        self.layer_norm_out = nn.LayerNorm(self.c_hidden)
+
+        self.sigmoid = nn.Sigmoid()
+
+    
+    def forward(self, z, mask=None):
+        """
+            Args:
+                x:
+                    [*, N_res, N_res, C_z] input tensor
+                mask:
+                    [*, N_res, N_res] input mask
+            Returns:
+                [*, N_res, N_res, C_z] output tensor
+        """
+        if(mask is None):
+            mask = z.new_ones(z.shape[:-1], requires_grad=False)
+        num_batch, num_res = mask.shape[:2]
+        mask = mask.unsqueeze(-1)
+        device = mask.device
+        all_ones = torch.ones(num_res, num_res, device=device)
+        triu_idx = torch.where(
+            torch.triu(all_ones)[None].repeat(num_batch, 1, 1))
+        sparse_z = self.layer_norm_in(z[triu_idx])
+        sparse_mask = mask[triu_idx]
+        sparse_a = (
+            self.linear_a_p(sparse_z) * self.sigmoid(self.linear_a_g(sparse_z))
+        ) * sparse_mask
+        sparse_g = self.sigmoid(self.linear_g(sparse_z))
+
+        tril_mask = torch.tril(all_ones, diagonal=-1)[None].repeat(num_batch, 1, 1)[..., None]
+        a = torch.zeros_like(z, device=device)
+        a[triu_idx] = sparse_a
+        a = a + a.swapaxes(1, 2) * tril_mask 
+        g = torch.zeros_like(z, device=device)
+        g[triu_idx] = sparse_g
+        g = g + g.swapaxes(1, 2) * tril_mask
+
+        tri_x = torch.einsum('bikd,bjkd->bijd', a, a)
+        sparse_x = self.linear_z(self.layer_norm_out(tri_x[triu_idx]))
+        x = torch.zeros_like(z, device=device)
+        x[triu_idx] = sparse_x
+        x = x + x.swapaxes(1, 2) * tril_mask  
+        return x * g
