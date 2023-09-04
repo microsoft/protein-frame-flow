@@ -4,10 +4,14 @@ defaults:
 
 data:
   sampler:
-    max_batch_size: 24
+    max_batch_size: 36
 
 model:
   architecture: flower
 
 experiment:
   num_devices: 2
+  debug: False
+  wandb:
+    name: flower
+    tags: ['experimental']

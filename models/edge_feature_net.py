@@ -5,65 +5,80 @@ from models.utils import dist_from_ca
 
 class EdgeFeatureNet(nn.Module):
 
-	def __init__(self, module_cfg):
-		#   c_s, c_p, relpos_k, template_type):
-		super(EdgeFeatureNet, self).__init__()
-		self._cfg = module_cfg
+    def __init__(self, module_cfg):
+        #   c_s, c_p, relpos_k, template_type):
+        super(EdgeFeatureNet, self).__init__()
+        self._cfg = module_cfg
 
-		self.c_s = self._cfg.c_s
-		self.c_p = self._cfg.c_p
+        self.c_s = self._cfg.c_s
+        self.c_p = self._cfg.c_p
 
-		self.linear_s_p_i = nn.Linear(self.c_s, self.c_p)
-		self.linear_s_p_j = nn.Linear(self.c_s, self.c_p)
+        self.linear_s_p_i = nn.Linear(self.c_s, self.c_p)
+        self.linear_s_p_j = nn.Linear(self.c_s, self.c_p)
 
-		self.relpos_k = self._cfg.relpos_k
-		self.n_bin = 2 * self._cfg.relpos_k + 1
-		self.linear_relpos = nn.Linear(self.n_bin, self.c_p)
-		self.linear_template = nn.Linear(1, self.c_p)
+        self.relpos_k = self._cfg.relpos_k
+        self.n_bin = 2 * self._cfg.relpos_k + 1
+        self.linear_relpos = nn.Linear(self.n_bin, self.c_p)
+        if self._cfg.use_rbf:
+            self.linear_template = nn.Linear(self._cfg.num_rbf, self.c_p)
+        else:
+            self.linear_template = nn.Linear(1, self.c_p)
+        
+    def _rbf(self, ca_dists):
+        # Distance radial basis function
+        device = ca_dists.device
+        D_min, D_max, D_count = 2., 22., self._cfg.num_rbf
+        D_mu = torch.linspace(D_min, D_max, D_count).to(device)
+        D_mu = D_mu.view([1,1,1,-1])
+        D_sigma = (D_max - D_min) / D_count
+        return torch.exp(-((ca_dists - D_mu) / D_sigma)**2)
 
-	def relpos(self, r):
-		# AlphaFold 2 Algorithm 4 & 5
-		# Based on OpenFold utils/tensor_utils.py
-		# Input: [b, n_res]
+    def relpos(self, r):
+        # AlphaFold 2 Algorithm 4 & 5
+        # Based on OpenFold utils/tensor_utils.py
+        # Input: [b, n_res]
 
-		# [b, n_res, n_res]
-		d = r[:, :, None] - r[:, None, :]
+        # [b, n_res, n_res]
+        d = r[:, :, None] - r[:, None, :]
 
-		# [n_bin]
-		v = torch.arange(-self.relpos_k, self.relpos_k + 1).to(r.device)
-		
-		# [1, 1, 1, n_bin]
-		v_reshaped = v.view(*((1,) * len(d.shape) + (len(v),)))
+        # [n_bin]
+        v = torch.arange(-self.relpos_k, self.relpos_k + 1).to(r.device)
+        
+        # [1, 1, 1, n_bin]
+        v_reshaped = v.view(*((1,) * len(d.shape) + (len(v),)))
 
-		# [b, n_res, n_res]
-		b = torch.argmin(torch.abs(d[:, :, :, None] - v_reshaped), dim=-1)
+        # [b, n_res, n_res]
+        b = torch.argmin(torch.abs(d[:, :, :, None] - v_reshaped), dim=-1)
 
-		# [b, n_res, n_res, n_bin]
-		oh = nn.functional.one_hot(b, num_classes=len(v)).float()
+        # [b, n_res, n_res, n_bin]
+        oh = nn.functional.one_hot(b, num_classes=len(v)).float()
 
-		# [b, n_res, n_res, c_p]
-		p = self.linear_relpos(oh)
+        # [b, n_res, n_res, c_p]
+        p = self.linear_relpos(oh)
 
-		return p
+        return p
 
-	def forward(self, s, t, p_mask):
-		# Input: [b, n_res, c_s]
+    def forward(self, s, t, p_mask):
+        # Input: [b, n_res, c_s]
 
-		# [b, n_res, c_p]
-		p_i = self.linear_s_p_i(s)
-		p_j = self.linear_s_p_j(s)
+        # [b, n_res, c_p]
+        p_i = self.linear_s_p_i(s)
+        p_j = self.linear_s_p_j(s)
 
-		# [b, n_res, n_res, c_p]
-		p = p_i[:, :, None, :] + p_j[:, None, :, :]
+        # [b, n_res, n_res, c_p]
+        p = p_i[:, :, None, :] + p_j[:, None, :, :]
 
-		# [b, n_res]
-		r = torch.arange(s.shape[1]).unsqueeze(0).repeat(s.shape[0], 1).to(s.device)
+        # [b, n_res]
+        r = torch.arange(s.shape[1]).unsqueeze(0).repeat(s.shape[0], 1).to(s.device)
 
-		# [b, n_res, n_res, c_p]
-		p += self.relpos(r)
-		p += self.linear_template(dist_from_ca(t))
+        # [b, n_res, n_res, c_p]
+        p += self.relpos(r)
+        dist_feats = dist_from_ca(t)
+        if self._cfg.use_rbf:
+            dist_feats = self._rbf(dist_feats)
+        p += self.linear_template(dist_feats)
 
-		# [b, n_res, n_res, c_p]
-		p *= p_mask.unsqueeze(-1)
+        # [b, n_res, n_res, c_p]
+        p *= p_mask.unsqueeze(-1)
 
-		return p
+        return p

@@ -3,10 +3,8 @@ defaults:
   - _self_
 
 experiment:
-  num_devices: 2
-  warm_start: ckpt/se3-fm/fixed_batch_size/2023-08-29_18-04-35/last.ckpt
+  num_devices: 4
+  warm_start: ckpt/se3-fm/baseline/2023-09-01_14-41-47/last.ckpt
   wandb:
-    name: warm_start_biased_t
+    name: warm_start_baseline
     tags: ['warm_start']
-  training:
-    t_sampler: bias

@@ -232,7 +232,7 @@ class FlowModule(LightningModule):
                 os.path.join(
                     self._sample_write_dir,
                     f'sample_{i}_len_{num_res}.pdb'),
-                no_indexing=False
+                no_indexing=True
             )
             if isinstance(self.logger, WandbLogger):
                 self.validation_epoch_samples.append(

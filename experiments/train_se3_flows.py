@@ -81,13 +81,17 @@ class Experiment:
 
 @hydra.main(version_base=None, config_path="../configs", config_name="base.yaml")
 def main(cfg: DictConfig) -> Optional[float]:
+    if cfg.experiment.warm_start is not None and cfg.experiment.warm_start_cfg_override:
+        warm_start_cfg_path = os.path.join(
+            os.path.dirname(cfg.experiment.warm_start), 'config.yaml')
+        warm_start_cfg = OmegaConf.load(warm_start_cfg_path)
+        OmegaConf.set_struct(cfg.model, False)
+        OmegaConf.set_struct(warm_start_cfg.model, False)
+        cfg.model = OmegaConf.merge(cfg.model, warm_start_cfg.model)
+        OmegaConf.set_struct(cfg.model, True)
+        log.info(f'Loaded warm start config from {warm_start_cfg_path}')
     exp = Experiment(cfg=cfg)
     exp.train()
 
-
 if __name__ == "__main__":
     main()
-
-
-
-

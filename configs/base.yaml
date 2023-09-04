@@ -19,6 +19,7 @@ data:
 
 model:
   architecture: framediff
+
   flower:
     node_embed_size: 128
     edge_embed_size: 128
@@ -32,27 +33,28 @@ model:
       c_s: ${model.flower.node_embed_size}
       c_p: ${model.flower.edge_embed_size}
       relpos_k: 32
-    pair_network:
-      c_p: ${model.flower.edge_embed_size}
-      include_mul_update: True
-      inlude_tri_att: False
-      c_hidden_mul: 128
-      pair_transition_n: 4
-      n_pair_transform_layer: 5
-    structure_network:
-      n_structure_layer: 5
+      use_rbf: False
+      num_rbf: 48
+    potential_network:
+      num_blocks: 4
       dropout: 0.0
-      n_structure_transition_layer: 1
-      structure_transition_dropout: 0.0
-      use_rot_updates: False
-      ipa:
-        c_s: ${model.flower.node_embed_size}
-        c_z: ${model.flower.edge_embed_size}
-        c_hidden: 16
-        no_heads: 12
-        no_qk_points: 4
-        no_v_points: 8
-    predict_rot_vf: True
+      edge_update:
+        c_p: ${model.flower.edge_embed_size}
+        c_hidden_mul: 128
+        pair_transition_n: 2
+        dropout: ${model.flower.potential_network.dropout} 
+      structure_update:
+        use_rot_updates: True
+        num_transition_layers: 1 
+        dropout: ${model.flower.potential_network.dropout}  
+        ipa:
+          c_s: ${model.flower.node_embed_size}
+          c_z: ${model.flower.edge_embed_size}
+          c_hidden: 16
+          no_heads: 12
+          no_qk_points: 4
+          no_v_points: 8
+    predict_rot_vf: False
 
   # Architecture based on GENIE
   genie:
@@ -112,8 +114,9 @@ model:
 experiment:
   debug: False
   seed: 123
-  num_devices: 2
+  num_devices: 1
   warm_start: null
+  warm_start_cfg_override: True
   noise_trans: True
   noise_rots: True
   batch_ot:
@@ -124,7 +127,7 @@ experiment:
   training:
     loss: bb_atom_loss
     superimpose: null
-    rotation_loss_weights: 0.5
+    rotation_loss_weights: 1.0
     t_sampler: uniform
   wandb:
     name: baseline

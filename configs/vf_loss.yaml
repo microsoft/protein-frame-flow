@@ -1,0 +1,15 @@
+defaults:
+  - base
+  - _self_
+
+model:
+  architecture: framediff
+  framediff:
+    use_rot_updates: False
+    predict_rot_vf: True
+
+experiment:
+  training:
+    loss: se3_vf_loss
+  wandb:
+    name: vf_loss
