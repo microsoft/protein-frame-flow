@@ -10,6 +10,7 @@ model:
   architecture: flower
 
   flower:
+    symmetric: True
     edge_features:
       use_rbf: True
       num_rbf: 48
@@ -18,8 +19,8 @@ model:
         symmetric_update: True
 
 experiment:
-  num_devices: 2
-  debug: False
+  num_devices: 2 #1
+  debug: False #True
   wandb:
     name: flower
     tags: ['experimental']

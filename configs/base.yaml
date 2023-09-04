@@ -23,6 +23,7 @@ model:
   flower:
     node_embed_size: 128
     edge_embed_size: 128
+    symmetric: True
     node_features:
       c_s: ${model.flower.node_embed_size}
       c_pos_emb: 128
@@ -34,13 +35,14 @@ model:
       c_p: ${model.flower.edge_embed_size}
       relpos_k: 32
       use_rbf: False
-      num_rbf: 48
+      num_rbf: 32
+      symmetric: ${model.flower.symmetric}
     potential_network:
       num_blocks: 4
       dropout: 0.0
       edge_update:
         c_p: ${model.flower.edge_embed_size}
-        symmetric_update: False
+        symmetric_update: ${model.flower.symmetric}
         c_hidden_mul: 128
         pair_transition_n: 2
         dropout: ${model.flower.potential_network.dropout} 

@@ -73,7 +73,8 @@ class EdgeUpdate(nn.Module):
 
     def forward(self, p, p_mask):
         if self._cfg.symmetric_update:
-            p = p + self.symm_tri_mul(p, p_mask)
+            symm_update = self.symm_tri_mul(p, p_mask) 
+            p = p + symm_update
         else:
             p = p + self.tri_mul_out(p, p_mask)
             p = p + self.tri_mul_in(p, p_mask)
@@ -98,7 +99,7 @@ class PotentialNet(nn.Module):
     def forward(self, s, p, t, mask, p_mask):
         t = self.rigids_ang_to_nm(t)
         for b in range(self._cfg.num_blocks):
-            p = self.trunk[f'edge_update_{b}'](p, p_mask) 
+            p = self.trunk[f'edge_update_{b}'](p, p_mask)
             s, t = self.trunk[f'bb_update_{b}'](s, p, t, mask)
         t = self.rigids_nm_to_ang(t)
         return s, t

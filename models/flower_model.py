@@ -18,7 +18,6 @@ class Flower(nn.Module):
         self._model_cfg = model_cfg
 
         self.node_feature_net = NodeFeatureNet(model_cfg.node_features)
-        # TODO: Make this symmetric.
         self.edge_feature_net = EdgeFeatureNet(model_cfg.edge_features)
         self.potential_net = PotentialNet(model_cfg.potential_network)
         if model_cfg.predict_rot_vf:

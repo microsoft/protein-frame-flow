@@ -13,11 +13,15 @@ class EdgeFeatureNet(nn.Module):
         self.c_s = self._cfg.c_s
         self.c_p = self._cfg.c_p
 
-        self.linear_s_p_i = nn.Linear(self.c_s, self.c_p)
-        self.linear_s_p_j = nn.Linear(self.c_s, self.c_p)
+        if self._cfg.symmetric:
+            self.linear_s_p = nn.Linear(self.c_s, self.c_p)
+            self.n_bin = self._cfg.relpos_k + 1
+        else:
+            self.linear_s_p_i = nn.Linear(self.c_s, self.c_p)
+            self.linear_s_p_j = nn.Linear(self.c_s, self.c_p)
+            self.n_bin = 2 * self._cfg.relpos_k + 1
 
         self.relpos_k = self._cfg.relpos_k
-        self.n_bin = 2 * self._cfg.relpos_k + 1
         self.linear_relpos = nn.Linear(self.n_bin, self.c_p)
         if self._cfg.use_rbf:
             self.linear_template = nn.Linear(self._cfg.num_rbf, self.c_p)
@@ -37,12 +41,18 @@ class EdgeFeatureNet(nn.Module):
         # AlphaFold 2 Algorithm 4 & 5
         # Based on OpenFold utils/tensor_utils.py
         # Input: [b, n_res]
+        if self._cfg.symmetric:
+            # [b, n_res, n_res]
+            d = torch.abs(r[:, :, None] - r[:, None, :])
 
-        # [b, n_res, n_res]
-        d = r[:, :, None] - r[:, None, :]
+            # [n_bin]
+            v = torch.arange(self.relpos_k + 1, device=r.device)
+        else:
+            # [b, n_res, n_res]
+            d = r[:, :, None] - r[:, None, :]
 
-        # [n_bin]
-        v = torch.arange(-self.relpos_k, self.relpos_k + 1).to(r.device)
+            # [n_bin]
+            v = torch.arange(-self.relpos_k, self.relpos_k + 1, device=r.device)
         
         # [1, 1, 1, n_bin]
         v_reshaped = v.view(*((1,) * len(d.shape) + (len(v),)))
@@ -62,14 +72,18 @@ class EdgeFeatureNet(nn.Module):
         # Input: [b, n_res, c_s]
 
         # [b, n_res, c_p]
-        p_i = self.linear_s_p_i(s)
-        p_j = self.linear_s_p_j(s)
+        if self._cfg.symmetric:
+            p_i = self.linear_s_p(s)
+            p = p_i[:, :, None, :] + p_i[:, None, :, :]
+        else:
+            p_i = self.linear_s_p_i(s)
+            p_j = self.linear_s_p_j(s)
 
-        # [b, n_res, n_res, c_p]
-        p = p_i[:, :, None, :] + p_j[:, None, :, :]
+            # [b, n_res, n_res, c_p]
+            p = p_i[:, :, None, :] + p_j[:, None, :, :]
 
         # [b, n_res]
-        r = torch.arange(s.shape[1]).unsqueeze(0).repeat(s.shape[0], 1).to(s.device)
+        r = torch.arange(s.shape[1], device=s.device).unsqueeze(0).repeat(s.shape[0], 1)
 
         # [b, n_res, n_res, c_p]
         p += self.relpos(r)
@@ -80,5 +94,4 @@ class EdgeFeatureNet(nn.Module):
 
         # [b, n_res, n_res, c_p]
         p *= p_mask.unsqueeze(-1)
-
         return p
