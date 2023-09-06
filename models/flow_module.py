@@ -49,6 +49,7 @@ class FlowModule(LightningModule):
         os.makedirs(self._sample_write_dir, exist_ok=True)
         self.validation_epoch_metrics = []
         self.validation_epoch_samples = []
+        self.save_hyperparameters()
         
     def on_train_start(self):
         self._epoch_start_time = time.time()
@@ -401,7 +402,7 @@ class FlowModule(LightningModule):
         Examples:
             https://lightning.ai/docs/pytorch/latest/common/lightning_module.html#configure-optimizers
         """
-        return torch.optim.Adam(
+        return torch.optim.AdamW(
             params=self.model.parameters(),
             **self._exp_cfg.optimizer
         )

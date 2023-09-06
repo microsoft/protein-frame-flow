@@ -31,6 +31,7 @@ model:
       max_num_res: 2000
       timestep_int: 1000
     edge_features:
+      single_bias_transition_n: 2
       c_s: ${model.flower.node_embed_size}
       c_p: ${model.flower.edge_embed_size}
       relpos_k: 32
@@ -40,12 +41,16 @@ model:
     potential_network:
       num_blocks: 4
       dropout: 0.0
+      weight_share: False
       edge_update:
+        c_s: ${model.flower.node_embed_size}
         c_p: ${model.flower.edge_embed_size}
         symmetric_update: ${model.flower.symmetric}
+        num_rbf: 32
         c_hidden_mul: 128
+        dropout: ${model.flower.potential_network.dropout}
+        single_bias: False
         pair_transition_n: 2
-        dropout: ${model.flower.potential_network.dropout} 
       structure_update:
         use_rot_updates: True
         num_transition_layers: 1 
@@ -147,6 +152,8 @@ experiment:
     check_val_every_n_epoch: 1
     deterministic: False
     strategy: ddp
+    accumulate_grad_batches: 1
+    num_sanity_val_steps: -1
   sampling:
     num_timesteps: 100
     min_t: 1e-3
@@ -156,3 +163,4 @@ experiment:
     save_last: True
     save_top_k: 3
     monitor: valid/non_coil_percent
+    mode: max

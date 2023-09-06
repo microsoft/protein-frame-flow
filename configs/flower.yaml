@@ -15,12 +15,17 @@ model:
       use_rbf: True
       num_rbf: 48
     potential_network:
+      num_blocks: 4
       edge_update:
         symmetric_update: True
+        single_bias: True
+        pair_transition_n: 1
 
 experiment:
-  num_devices: 2 #1
-  debug: False #True
+  num_devices: 2
+  debug: False
+  trainer:
+    accumulate_grad_batches: 1
   wandb:
     name: flower
     tags: ['experimental']

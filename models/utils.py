@@ -46,3 +46,11 @@ def dist_from_ca(trans):
 
 	return d
 
+
+def calc_rbf(ca_dists, num_rbf, D_min=1e-3, D_max=22.):
+    # Distance radial basis function
+    device = ca_dists.device
+    D_mu = torch.linspace(D_min, D_max, num_rbf).to(device)
+    D_mu = D_mu.view([1,1,1,-1])
+    D_sigma = (D_max - D_min) / num_rbf
+    return torch.exp(-((ca_dists - D_mu) / D_sigma)**2)

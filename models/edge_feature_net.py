@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from models.utils import dist_from_ca
+from models.utils import dist_from_ca, calc_rbf
 
 class EdgeFeatureNet(nn.Module):
 
@@ -89,7 +89,7 @@ class EdgeFeatureNet(nn.Module):
         p += self.relpos(r)
         dist_feats = dist_from_ca(t)
         if self._cfg.use_rbf:
-            dist_feats = self._rbf(dist_feats)
+            dist_feats = calc_rbf(dist_feats, self._cfg.num_rbf)
         p += self.linear_template(dist_feats)
 
         # [b, n_res, n_res, c_p]
