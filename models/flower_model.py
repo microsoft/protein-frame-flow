@@ -3,7 +3,6 @@ from torch import nn
 
 from models.node_feature_net import NodeFeatureNet
 from models.edge_feature_net import EdgeFeatureNet
-from models.pair_network import PairTransformNet
 from models.potential_net import PotentialNet
 from models import ipa_pytorch
 

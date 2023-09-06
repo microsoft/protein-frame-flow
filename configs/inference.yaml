@@ -1,0 +1,38 @@
+# Configuration for inference on SE(3) diffusion experiments.
+defaults:
+  - _self_
+  - base
+
+inference:
+  name: inference
+  seed: 123
+  ckpt_path: ckpt/se3-fm/warm_start/2023-08-30_17-36-07/last.ckpt
+  use_gpu: True
+
+  # Number of steps.
+  num_timesteps: 500
+
+  # Directory of software, weights, and outputs.
+  pt_hub_dir: ./.cache/torch/
+  pmpnn_dir: ./ProteinMPNN
+  output_dir: ./inference_outputs/${inference.name}/${now:%Y-%m-%d}_${now:%H-%M-%S}
+
+  wandb_enable: False
+  wandb:
+    name: ${inference.name}
+    project: se3-fm-inference
+    tags: []
+    dir: .wandb_inference
+
+  samples:
+    # Number of backbone samples per sequence length.
+    samples_per_length: 10
+    # Number of ESMFdold samples per backbone sample.
+    seq_per_sample: 8
+    # Minimum sequence length to sample.
+    min_length: 60
+    # Maximum sequence length to sample.
+    max_length: 128
+    # gap between lengths to sample. i.e. this script will sample all lengths
+    # in range(min_length, max_length, length_step)
+    length_step: 1

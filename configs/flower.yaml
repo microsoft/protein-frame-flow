@@ -20,6 +20,9 @@ model:
         symmetric_update: True
         single_bias: True
         pair_transition_n: 1
+      structure_update:
+        seq_tfmr:
+          enable: True
 
 experiment:
   num_devices: 2

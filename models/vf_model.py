@@ -182,7 +182,7 @@ class VFModel(nn.Module):
             else:
                 seq_tfmr_in = node_embed
             seq_tfmr_out = self.trunk[f'seq_tfmr_{b}'](
-                seq_tfmr_in, src_key_padding_mask=1 - node_mask)
+                seq_tfmr_in, src_key_padding_mask=(1 - node_mask).bool())
             node_embed = node_embed + self.trunk[f'post_tfmr_{b}'](seq_tfmr_out)
             node_embed = self.trunk[f'node_transition_{b}'](node_embed)
             node_embed = node_embed * node_mask[..., None]

@@ -20,6 +20,22 @@ class StructureUpdate(nn.Module):
         ipa_cfg = module_cfg.ipa
         c_s = ipa_cfg.c_s
         self.ipa = InvariantPointAttention(module_cfg.ipa)
+        seq_tfmr_cfg = module_cfg.seq_tfmr
+        if seq_tfmr_cfg.enable:
+            tfmr_layer = torch.nn.TransformerEncoderLayer(
+                d_model=c_s,
+                nhead=seq_tfmr_cfg.num_heads,
+                dim_feedforward=c_s,
+                batch_first=True,
+                dropout=0.0,
+                norm_first=False
+            )
+            self.seq_tfmr = torch.nn.TransformerEncoder(
+                tfmr_layer,
+                seq_tfmr_cfg.num_layers,
+                enable_nested_tensor=False
+            )
+            self.seq_tfmr_layer_norm = nn.LayerNorm(c_s)
         self.ipa_dropout = nn.Dropout(module_cfg.dropout)
         self.ipa_layer_norm = nn.LayerNorm(c_s)
 
@@ -38,6 +54,10 @@ class StructureUpdate(nn.Module):
         s = s + self.ipa(s, p, t, mask)
         s = self.ipa_dropout(s)
         s = self.ipa_layer_norm(s)
+        s = s * mask[..., None]
+        if self._module_cfg.seq_tfmr.enable:
+            s = s + self.seq_tfmr(s, src_key_padding_mask=(1 - mask).type(torch.float32))
+            s = self.seq_tfmr_layer_norm(s)
         s = self.transition(s)
         if self._module_cfg.use_rot_updates:
             t = t.compose_q_update_vec(self.bb_update(s), mask[..., None])

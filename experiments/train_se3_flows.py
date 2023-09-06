@@ -1,5 +1,4 @@
 import os
-from typing import List, Optional
 import GPUtil
 import torch
 
@@ -10,7 +9,7 @@ from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import LightningDataModule, LightningModule, Trainer
 from pytorch_lightning.loggers.wandb import WandbLogger
 from pytorch_lightning.trainer import Trainer
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, StochasticWeightAveraging
 
 from data.pdb_dataloader import PdbDataModule
 from models.flow_module import FlowModule
@@ -34,11 +33,10 @@ class Experiment:
         )
         
     def train(self):
-
+        callbacks = []
         if self._exp_cfg.debug:
             log.info("Debug mode.")
             logger = None
-            callbacks = None
         else:
             logger = WandbLogger(
                 **self._exp_cfg.wandb,
@@ -50,7 +48,7 @@ class Experiment:
             log.info(f"Checkpoints saved to {ckpt_dir}")
             
             # Model checkpoints
-            callbacks = ModelCheckpoint(**self._exp_cfg.checkpointer)
+            callbacks.append(ModelCheckpoint(**self._exp_cfg.checkpointer))
             
             # Save config
             cfg_path = os.path.join(ckpt_dir, 'config.yaml')
@@ -60,6 +58,9 @@ class Experiment:
             flat_cfg = dict(eu.flatten_dict(cfg_dict))
             if isinstance(logger.experiment.config, wandb.sdk.wandb_config.Config):
                 logger.experiment.config.update(flat_cfg)
+
+        if self._exp_cfg.use_swa:
+            callbacks.append(StochasticWeightAveraging(swa_lrs=1e-2))
 
         devices = GPUtil.getAvailable(order='memory', limit = 8)[:self._exp_cfg.num_devices]
         log.info(f"Using devices: {devices}")
@@ -80,16 +81,22 @@ class Experiment:
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="base.yaml")
-def main(cfg: DictConfig) -> Optional[float]:
+def main(cfg: DictConfig):
+
     if cfg.experiment.warm_start is not None and cfg.experiment.warm_start_cfg_override:
+        # Loads warm start config.
         warm_start_cfg_path = os.path.join(
             os.path.dirname(cfg.experiment.warm_start), 'config.yaml')
         warm_start_cfg = OmegaConf.load(warm_start_cfg_path)
+
+        # Warm start config may not have latest fields in the base config.
+        # Add these fields to the warm start config.
         OmegaConf.set_struct(cfg.model, False)
         OmegaConf.set_struct(warm_start_cfg.model, False)
         cfg.model = OmegaConf.merge(cfg.model, warm_start_cfg.model)
         OmegaConf.set_struct(cfg.model, True)
         log.info(f'Loaded warm start config from {warm_start_cfg_path}')
+
     exp = Experiment(cfg=cfg)
     exp.train()
 

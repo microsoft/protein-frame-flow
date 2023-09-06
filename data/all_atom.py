@@ -215,3 +215,28 @@ def vector_projection(R_ab, P_n):
     a_x_b = torch.sum(R_ab * P_n, dim=-1)
     b_x_b = torch.sum(P_n * P_n, dim=-1)
     return R_ab - (a_x_b / b_x_b)[:, None] * P_n
+
+
+def transrot_to_atom37(transrot_traj, res_mask):
+    atom37_traj = []
+    res_mask = res_mask.detach().cpu()
+    num_batch = res_mask.shape[0]
+    for trans, rots in transrot_traj:
+        rigids = du.create_rigid(rots, trans)
+        atom37 = compute_backbone(
+            rigids,
+            torch.zeros(
+                trans.shape[0],
+                trans.shape[1],
+                2,
+                device=trans.device
+            )
+        )[0]
+        atom37 = atom37.detach().cpu()
+        batch_atom37 = []
+        for i in range(num_batch):
+            batch_atom37.append(
+                du.adjust_oxygen_pos(atom37[i], res_mask[i])
+            )
+        atom37_traj.append(torch.stack(batch_atom37))
+    return atom37_traj

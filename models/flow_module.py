@@ -267,14 +267,19 @@ class FlowModule(LightningModule):
         self._print_logger.info(f'Finished with eval epoch {self.current_epoch}')
         
     @torch.no_grad()
-    def run_sampling(self, batch: Any, return_traj=False, return_model_outputs=False):
-        batch, pdb_names = batch
-        if self.current_epoch == 0:
-            self._print_logger.info(f'Running eval on batches from {pdb_names}')
+    def run_sampling(
+            self,
+            batch: Any,
+            return_traj=False,
+            return_model_outputs=False,
+            num_timesteps=None,
+        ):
+        batch, _ = batch
         res_mask = batch['res_mask']
         device = res_mask.device
         num_batch, num_res = res_mask.shape[:2]
-        trans_0 = self._centered_gaussian(batch['trans_1'].shape, device) * du.NM_TO_ANG_SCALE
+        trans_0 = self._centered_gaussian(
+            (num_batch, num_res, 3), device) * du.NM_TO_ANG_SCALE
         rots_0 = torch.tensor(
             Rotation.random(num_batch*num_res).as_matrix(),
             device=device,
@@ -283,15 +288,15 @@ class FlowModule(LightningModule):
         if rots_0.ndim == 3:
             rots_0 = rots_0[None]
         
-        trans_traj = [trans_0]
-        rots_traj = [rots_0]
-        ts = np.linspace(self._sampling_cfg.min_t, 1.0, self._sampling_cfg.num_timesteps)
+        prot_traj = [(trans_0, rots_0)]
+        if num_timesteps is None:
+            num_timesteps = self._sampling_cfg.num_timesteps
+        ts = np.linspace(self._sampling_cfg.min_t, 1.0, num_timesteps)
         t_1 = ts[0]
-        model_outputs = []
+        model_traj = []
         for t_2 in ts[1:]:
             d_t = t_2 - t_1
-            trans_t_1 = trans_traj[-1]
-            rots_t_1 = rots_traj[-1]
+            trans_t_1, rots_t_1 = prot_traj[-1]
             with torch.no_grad():
                 if self._exp_cfg.noise_trans:
                     batch['trans_t'] = trans_t_1
@@ -303,13 +308,14 @@ class FlowModule(LightningModule):
                     batch['rotmats_t'] = batch['rotmats_1']
                 batch['t'] = torch.ones((num_batch, 1)).to(device) * t_1
                 model_out = self.forward(batch)
-                model_outputs.append(
-                    tree.map_structure(lambda x: du.to_numpy(x), model_out)
-                )
 
             pred_trans_1 = model_out['pred_trans']
             pred_rots_1 = model_out['pred_rotmats']
             pred_rots_vf = model_out['pred_rots_vf']
+
+            model_traj.append(
+                (pred_trans_1.detach().cpu(), pred_rots_1.detach().cpu())
+            )
 
             trans_vf = (pred_trans_1 - trans_t_1) / (1 - t_1)
             trans_t_2 = trans_t_1 + trans_vf * d_t
@@ -321,35 +327,14 @@ class FlowModule(LightningModule):
                     d_t / (1 - t_1), pred_rots_1, rots_t_1) 
             t_1 = t_2
             if return_traj:
-                trans_traj.append(trans_t_2)
-                rots_traj.append(rots_t_2)
+                prot_traj.append((trans_t_2, rots_t_2))
             else:
-                trans_traj[-1] = trans_t_2
-                rots_traj[-1] = rots_t_2
+                prot_traj[-1] = (trans_t_2, rots_t_2)
 
-        atom37_traj = []
-        res_mask = res_mask.detach().cpu()
-        for trans, rots in zip(trans_traj, rots_traj):
-            rigids = du.create_rigid(rots, trans)
-            atom37 = all_atom.compute_backbone(
-                rigids,
-                torch.zeros(
-                    trans.shape[0],
-                    trans.shape[1],
-                    2,
-                    device=trans.device
-                )
-            )[0]
-            atom37 = atom37.detach().cpu()
-            batch_atom37 = []
-            for i in range(num_batch):
-                batch_atom37.append(
-                    du.adjust_oxygen_pos(atom37[i], res_mask[i])
-                )
-            atom37_traj.append(torch.stack(batch_atom37))
-
+        atom37_traj = all_atom.transrot_to_atom37(prot_traj, res_mask)
         if return_model_outputs:
-            return atom37_traj, model_outputs
+            model_traj = all_atom.transrot_to_atom37(model_traj, res_mask)
+            return atom37_traj, model_traj
         return atom37_traj
         
     def _log_scalar(self, key, value, on_step=True, on_epoch=False, prog_bar=True, batch_size=None, sync_dist=False, rank_zero_only=True):

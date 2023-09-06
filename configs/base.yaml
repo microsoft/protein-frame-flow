@@ -20,6 +20,7 @@ data:
 model:
   architecture: framediff
 
+  # New architecture
   flower:
     node_embed_size: 128
     edge_embed_size: 128
@@ -54,7 +55,11 @@ model:
       structure_update:
         use_rot_updates: True
         num_transition_layers: 1 
-        dropout: ${model.flower.potential_network.dropout}  
+        dropout: ${model.flower.potential_network.dropout}
+        seq_tfmr:
+          enable: False
+          num_heads: 4
+          num_layers: 2
         ipa:
           c_s: ${model.flower.node_embed_size}
           c_z: ${model.flower.edge_embed_size}
@@ -64,7 +69,7 @@ model:
           no_v_points: 8
     predict_rot_vf: False
 
-  # Architecture based on GENIE
+  # GENIE architecture
   genie:
     node_embed_size: 128
     edge_embed_size: 128
@@ -122,11 +127,12 @@ model:
 experiment:
   debug: False
   seed: 123
-  num_devices: 1
+  num_devices: 2
   warm_start: null
   warm_start_cfg_override: True
   noise_trans: True
   noise_rots: True
+  use_swa: False
   batch_ot:
     enabled: True
     cost: kabsch
