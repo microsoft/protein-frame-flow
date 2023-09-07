@@ -21,7 +21,6 @@ from typing import Optional
 from analysis import utils as au
 from analysis import metrics
 from data import utils as du
-from data import residue_constants
 from omegaconf import DictConfig, OmegaConf
 from openfold.utils.superimposition import superimpose
 import esm
@@ -32,14 +31,13 @@ import wandb
 
 log = eu.get_pylogger(__name__)
 
-
-CA_IDX = residue_constants.atom_order['CA']
 WANDB_TABLE_COLS = [
     'tm_score', 'rmsd', 'helix_percent', 'strand_percent',
     'mean_plddt', 'length', 'sample_id', 
     'sample_pdb_path', 'esmf_pdb_path', 
     'esmf', 'sample'
 ]
+
 
 def _create_template_feats(num_res, device):
     return {        
@@ -54,7 +52,7 @@ def _parse_designable(result_df):
     sctm_confident = ((result_df.tm_score > 0.5) & (result_df.mean_plddt > 70)).sum()
     scrmsd_designable = (result_df.rmsd < 2.0).sum()
     scrmsd_confident = ((result_df.rmsd < 2.0) & (result_df.mean_plddt > 70)).sum()
-    return {
+    return pd.DataFrame(data={
         'scTM designable': sctm_designable,
         'scTM confident': sctm_confident,
         'scTM designable percent': sctm_designable / total_samples,
@@ -67,7 +65,7 @@ def _parse_designable(result_df):
 
         'Helix percent': result_df.helix_percent.sum() / total_samples,
         'Stand percent': result_df.strand_percent.sum() / total_samples,
-    } 
+    }, index=[0])
 
 
 class Sampler:
@@ -117,8 +115,11 @@ class Sampler:
         # Set-up directories to write results to
         output_base_dir = self._infer_cfg.output_dir
         ckpt_name = '_'.join(ckpt_path.replace('.ckpt', '').split('/')[-3:])
-        self._output_dir = os.path.join(
-            output_base_dir, ckpt_name, f'ts_{self._infer_cfg.num_timesteps}')
+        if self._infer_cfg.name is None:
+            self._output_dir = os.path.join(
+                output_base_dir, ckpt_name, f'ts_{self._infer_cfg.num_timesteps}')
+        else:
+            self._output_dir = os.path.join(output_base_dir, self._infer_cfg.name) 
         os.makedirs(self._output_dir, exist_ok=True)
         log.info(f'Saving results to {self._output_dir}')
         config_path = os.path.join(self._output_dir, 'config.yaml')
@@ -140,7 +141,109 @@ class Sampler:
                 **self._infer_cfg.wandb
             )
 
-    def run_sampling(self):
+    def _within_length_sampling(self, length_dir, sample_length):
+        length_top_samples = []
+        for sample_i in range(self._samples_cfg.samples_per_length):
+            sample_dir = os.path.join(length_dir, f'sample_{sample_i}')
+            sc_output_dir = os.path.join(sample_dir, 'self_consistency')
+            top_sample_path = os.path.join(sample_dir, 'top_sample.csv')
+            if os.path.exists(top_sample_path) and not self._samples_cfg.overwrite:
+                log.info(f'Skipping {sample_dir}')
+                top_sample = pd.read_csv(top_sample_path)
+                length_top_samples.append(top_sample)
+                continue
+
+            # Run sampling
+            os.makedirs(sample_dir, exist_ok=True)
+            init_feats = _create_template_feats(sample_length, self.device)
+            atom37_traj, model_traj = self._model.run_sampling(
+                batch=(init_feats, 'sample'),
+                return_traj=True,
+                return_model_outputs=True,
+                num_timesteps=self._infer_cfg.num_timesteps,
+            )
+            traj_paths = self.save_traj(
+                np.flip(du.to_numpy(torch.concat(atom37_traj, dim=0)), axis=0),
+                np.flip(du.to_numpy(torch.concat(model_traj, dim=0)), axis=0),
+                np.ones(sample_length),
+                output_dir=sample_dir
+            )
+
+            # Run self-consistency
+            pdb_path = traj_paths['sample_path']
+            os.makedirs(sc_output_dir, exist_ok=True)
+            shutil.copy(pdb_path, os.path.join(
+                sc_output_dir, os.path.basename(pdb_path)))
+            sc_results = self.run_self_consistency(
+                sc_output_dir,
+                pdb_path,
+                motif_mask=None
+            )
+            sc_results['length'] = sample_length
+            sc_results['sample_id'] = sample_i
+            del sc_results['header']
+            del sc_results['sequence']
+
+            # Select the top sample
+            top_sample = sc_results.sort_values('rmsd', ascending=True).iloc[:1]
+            length_top_samples.append(top_sample)
+
+            # Compute secondary structure metrics
+            sample_dict = top_sample.iloc[0].to_dict()
+            ss_metrics = metrics.calc_mdtraj_metrics(sample_dict['sample_pdb_path'])
+            top_sample['helix_percent'] = ss_metrics['helix_percent']
+            top_sample['strand_percent'] = ss_metrics['strand_percent']
+            top_sample.to_csv(top_sample_path)
+
+            log.info(f'Done sample {sample_i}: {pdb_path}')
+        return pd.concat(length_top_samples)
+
+    def log_wandb_results(self, log_table, sc_summary):
+        log_table = log_table.rename(
+            columns={
+                'length': 'Sample length',
+                'rmsd': 'scRMSD',
+                'tm_score': 'scTM',
+                'helix_percent': 'Helix',
+                'strand_percent': 'Strand'
+            }
+        ).round(2)
+        wandb.log({
+            "scRMSD": wandb.plot.scatter(
+                wandb.Table(dataframe=log_table[['Sample length', 'scRMSD']]),
+                x='Sample length',
+                y='scRMSD',
+                title='Length vs. scRMSD'
+            )
+        })
+        wandb.log({
+            "Secondary Structure": wandb.plot.scatter(
+                wandb.Table(dataframe=log_table[['Helix', 'Strand']]),
+                x='Helix',
+                y='Strand',
+                title='Secondary structure'
+            )
+        })
+
+        log_table['esmf'] = log_table['esmf_pdb_path'].map(lambda x: wandb.Molecule(x))
+        log_table['sample'] = log_table['sample_pdb_path'].map(lambda x: wandb.Molecule(x))
+        wandb.log({
+            "Top sample results": wandb.Table(
+                dataframe=log_table
+            )
+        })
+
+        designable_summary = pd.concat(sc_summary).rename(
+            columns={
+                'length': 'Sample length'
+            }
+        ).round(2)
+        wandb.log({
+            "scRMSD passing" : wandb.plot.scatter(
+                wandb.Table(dataframe=designable_summary), "Sample length", "scTM designable")
+        })
+
+    def run_length_sampling(self):
         """Sets up inference run.
 
         All outputs are written to 
@@ -152,88 +255,35 @@ class Sampler:
             self._samples_cfg.max_length+1,
             self._samples_cfg.length_step
         )
-        wandb_table = None
-        if self._infer_cfg.wandb_enable:
-            wandb_table = wandb.Table(columns=WANDB_TABLE_COLS)
-        all_results = []
-        table_rows = []
+        wandb_sc_summary = []
+        wandb_table_rows = []
         for sample_length in all_sample_lengths:
             length_dir = os.path.join(
                 self._output_dir, f'length_{sample_length}')
-            if os.path.isdir(length_dir) and not self._samples_cfg.overwrite:
-                log.info(f'Skipping {length_dir}')
-                continue
             os.makedirs(length_dir, exist_ok=True)
             log.info(f'Sampling length {sample_length}: {length_dir}')
-            length_results = []
-            for sample_i in range(self._samples_cfg.samples_per_length):
-                sample_dir = os.path.join(length_dir, f'sample_{sample_i}')
-                os.makedirs(sample_dir, exist_ok=True)
-                init_feats = _create_template_feats(sample_length, self.device)
-                atom37_traj, model_traj = self._model.run_sampling(
-                    batch=(init_feats, 'sample'),
-                    return_traj=True,
-                    return_model_outputs=True,
-                    num_timesteps=self._infer_cfg.num_timesteps,
-                )
-                traj_paths = self.save_traj(
-                    np.flip(du.to_numpy(torch.concat(atom37_traj, dim=0)), axis=0),
-                    np.flip(du.to_numpy(torch.concat(model_traj, dim=0)), axis=0),
-                    np.ones(sample_length),
-                    output_dir=sample_dir
-                )
+            length_top_samples = self._within_length_sampling(
+                length_dir, sample_length)
+            
+            length_top_samples.to_csv(os.path.join(length_dir, 'top_samples.csv'))
+            wandb_table_rows.append(length_top_samples)
 
-                # Run ProteinMPNN
-                pdb_path = traj_paths['sample_path']
-                sc_output_dir = os.path.join(sample_dir, 'self_consistency')
-                os.makedirs(sc_output_dir, exist_ok=True)
-                shutil.copy(pdb_path, os.path.join(
-                    sc_output_dir, os.path.basename(pdb_path)))
-                sc_results = self.run_self_consistency(
-                    sc_output_dir,
-                    pdb_path,
-                    motif_mask=None
-                )
-                sc_results['length'] = sample_length
-                sc_results['sample_id'] = sample_i
-                del sc_results['header']
-                del sc_results['sequence']
-
-                # Select the top sample
-                top_sample = sc_results.sort_values('rmsd', ascending=True).iloc[:1]
-                length_results.append(top_sample)
-
-                # Compute secondary structure metrics
-                sample_dict = top_sample.iloc[0].to_dict()
-                ss_metrics = metrics.calc_mdtraj_metrics(sample_dict['sample_pdb_path'])
-                top_sample['helix_percent'] = ss_metrics['helix_percent']
-                top_sample['strand_percent'] = ss_metrics['strand_percent']
-
-                if wandb_table is not None:
-                    sample_dict['esmf'] = wandb.Molecule(sample_dict['esmf_pdb_path'])
-                    sample_dict['sample'] = wandb.Molecule(sample_dict['sample_pdb_path'])
-                    table_rows.append([sample_dict[col] for col in WANDB_TABLE_COLS])
-                log.info(f'Done sample {sample_i}: {pdb_path}')
-            length_results = pd.concat(length_results)
-            designable_results = _parse_designable(length_results)
-            designable_results.to_csv(os.path.join(length_dir, 'sc_results.csv'))
-            length_results.to_csv(os.path.join(length_dir, 'length_summary.csv'))
+            designable_results = _parse_designable(length_top_samples)
+            designable_results['length'] = sample_length
+            designable_results.to_csv(os.path.join(length_dir, 'sc_summary.csv'))
+            wandb_sc_summary.append(designable_results)
             if self._infer_cfg.wandb_enable:
-                wandb.log(designable_results, step=sample_length)
-                wandb.log({
-                    "Sample results": wandb.Table(
-                        columns=WANDB_TABLE_COLS,
-                        data=table_rows
-                    )
-                })
-            all_results.append(length_results)
+                self.log_wandb_results(pd.concat(wandb_table_rows), wandb_sc_summary)
+        final_top_samples = pd.concat(wandb_table_rows)
+        final_sc_summary = _parse_designable(final_top_samples).round(2)
+        final_sc_summary.to_csv(os.path.join(self._output_dir, 'sc_summary.csv'))
         if self._infer_cfg.wandb_enable:
-            # TODO: Re-read all results then write out
-            all_results = pd.concat(all_results)
-            global_results = _parse_designable(all_results)
+            data = [[label, val[0]] for (label, val) in final_sc_summary.to_dict().items()]
+            table = wandb.Table(data=data, columns = ["Metric", "value"])
             wandb.log({
-                f'Global {k}': v for k,v in global_results.items()
-            }, step=self._model_ckpt['global_step'])
+                "Final metrics" : wandb.plot.bar(
+                    table, "Metric", "value", title="Final metrics")
+            })
 
     def save_traj(
             self,
@@ -471,7 +521,7 @@ def run(cfg: DictConfig) -> None:
     log.info('Starting inference')
     start_time = time.time()
     sampler = Sampler(cfg)
-    sampler.run_sampling()
+    sampler.run_length_sampling()
     elapsed_time = time.time() - start_time
     log.info(f'Finished in {elapsed_time:.2f}s')
 

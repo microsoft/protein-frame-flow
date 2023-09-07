@@ -1,14 +1,15 @@
 # Configuration for inference on SE(3) diffusion experiments.
 defaults:
-  - _self_
   - base
+  - _self_
 
 inference:
   name: null
   seed: 123
-  # ckpt_path: ckpt/se3-fm/batchot_permute/2023-09-05_20-48-36/last.ckpt 
   ckpt_path: ckpt/se3-fm/warm_start/2023-09-05_20-21-01/last.ckpt
+  # ckpt_path: ckpt/se3-fm/batchot_permute/2023-09-05_20-48-36/last.ckpt 
   # ckpt_path: ckpt/se3-fm/flower/2023-09-05_20-34-26/last.ckpt
+  
   use_gpu: True
   use_ca_pmpnn: True
 
@@ -24,7 +25,6 @@ inference:
   wandb:
     project: se3-fm-inference
     tags: ['ts_${inference.num_timesteps}']
-    resume: True
 
   samples:
     # Number of backbone samples per sequence length.
