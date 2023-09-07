@@ -1,0 +1,7 @@
+# Configuration for inference on SE(3) diffusion experiments.
+defaults:
+  - inference
+  - _self_
+
+inference:
+  wandb_enable: False

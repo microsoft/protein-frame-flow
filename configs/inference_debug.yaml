@@ -9,6 +9,9 @@ inference:
   # Number of steps.
   num_timesteps: 10
 
+  wandb:
+    tags: ['debug']
+
   samples:
     # Number of backbone samples per sequence length.
     samples_per_length: 3

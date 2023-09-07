@@ -1,7 +1,65 @@
-"""Script for running inference and sampling.
+"""Script for running inference and evaluation.
 
-Sample command:
+Assuming flow-matching is the base directory. Quick start command:
 > python -W ignore experiments/inference_se3_flows.py
+
+##########
+# Config #
+##########
+
+Inference configs:
+- configs/inference.yaml: Base config.
+- configs/inference_debug.yaml: used for debugging.
+- configs/inference_worker.yaml: sampling without logging to wandb.
+
+Most important fields:
+- inference.ckpt_path: Checkpoint to read model weights from.
+- inference_numtimesteps: Number of timesteps to use during sampling.
+- inference.wandb_enable: Whether to turn on wandb logging.
+
+#######################
+# Directory structure #
+#######################
+
+inference_outputs/                      # Inference run name. Same as Wandb run.
+├── config.yaml                         # Inference and model config.
+├── length_N                            # Directory for samples of length N.
+│   ├── sample_X                        # Directory for sample X of length N.
+│   │   ├── bb_traj.pdb                 # Flow matching trajectory
+│   │   ├── sample.pdb                  # Final sample (final step of trajectory).
+│   │   ├── self_consistency            # Directory of SC intermediate files.
+│   │   │   ├── esmf                    # Directory of ESMFold outputs.
+│   │   │   │   └── sample_X.pdb        # ESMFold output.
+│   │   │   ├── parsed_pdbs.jsonl       # ProteinMPNN compatible data file.
+│   │   │   ├── sample.pdb              # Copy of sample_x/sample.pdb to use in ProteinMPNN
+│   │   │   ├── sc_results.csv          # All SC results from ProteinMPNN/ESMFold.
+│   │   │   └── seqs                    # Directory of ProteinMPNN sequences.
+│   │   │       └── sample.fa           # FASTA file of ProteinMPNN sequences.
+│   │   ├── top_sample.csv              # CSV of the SC metrics for the best sequences and ESMFold structure.
+│   │   └── x0_traj.pdb                 # Model x0 trajectory.
+
+###########
+# Logging #
+###########
+
+By default inference_se3_flows.py will run inference and log results to
+wandb. On wandb, we create scatter plots of designability results.
+
+###############
+## Workflow: ##
+###############
+
+Modify inference.yaml or use the command line to start a single GPU wandb logging run:
+
+> python -W ignore experiments/inference_se3_flows.py inference.ckpt_path=<path>
+
+Single GPU is too slow for 1000 timesteps. There is an option to just run sampling.
+The following will not log to wandb.
+
+> python -W ignore experiments/inference_se3_flows.py -cn inference_worker
+
+After sampling is done, one can run inference with wandb logging.
+This will pick up all the pre-computed samples and log complete metrics to wandb.
 
 """
 
@@ -147,11 +205,16 @@ class Sampler:
             sample_dir = os.path.join(length_dir, f'sample_{sample_i}')
             sc_output_dir = os.path.join(sample_dir, 'self_consistency')
             top_sample_path = os.path.join(sample_dir, 'top_sample.csv')
-            if os.path.exists(top_sample_path) and not self._samples_cfg.overwrite:
-                log.info(f'Skipping {sample_dir}')
-                top_sample = pd.read_csv(top_sample_path)
-                length_top_samples.append(top_sample)
-                continue
+
+            if not self._samples_cfg.overwrite:
+                if self._infer_cfg.wandb_enable and os.path.exists(top_sample_path):
+                    log.info(f'Skipping {sample_dir}')
+                    top_sample = pd.read_csv(top_sample_path)
+                    length_top_samples.append(top_sample)
+                    continue
+                elif (not self._infer_cfg.wandb_enable) and os.path.isdir(sample_dir):
+                    log.info(f'Skipping {sample_dir}')
+                    continue
 
             # Run sampling
             os.makedirs(sample_dir, exist_ok=True)
@@ -194,9 +257,10 @@ class Sampler:
             top_sample['helix_percent'] = ss_metrics['helix_percent']
             top_sample['strand_percent'] = ss_metrics['strand_percent']
             top_sample.to_csv(top_sample_path)
-
-            log.info(f'Done sample {sample_i}: {pdb_path}')
-        return pd.concat(length_top_samples)
+            log.info(f'Done sample {sample_i}')
+        if len(length_top_samples):
+            length_top_samples = pd.concat(length_top_samples)
+        return length_top_samples
 
     def log_wandb_results(self, log_table, sc_summary):
         log_table = log_table.rename(
@@ -264,20 +328,18 @@ class Sampler:
             log.info(f'Sampling length {sample_length}: {length_dir}')
             length_top_samples = self._within_length_sampling(
                 length_dir, sample_length)
-            
-            length_top_samples.to_csv(os.path.join(length_dir, 'top_samples.csv'))
-            wandb_table_rows.append(length_top_samples)
-
-            designable_results = _parse_designable(length_top_samples)
-            designable_results['length'] = sample_length
-            designable_results.to_csv(os.path.join(length_dir, 'sc_summary.csv'))
-            wandb_sc_summary.append(designable_results)
             if self._infer_cfg.wandb_enable:
+                length_top_samples.to_csv(os.path.join(length_dir, 'top_samples.csv'))
+                wandb_table_rows.append(length_top_samples)
+                designable_results = _parse_designable(length_top_samples)
+                designable_results['length'] = sample_length
+                designable_results.to_csv(os.path.join(length_dir, 'sc_summary.csv'))
+                wandb_sc_summary.append(designable_results)
                 self.log_wandb_results(pd.concat(wandb_table_rows), wandb_sc_summary)
-        final_top_samples = pd.concat(wandb_table_rows)
-        final_sc_summary = _parse_designable(final_top_samples).round(2)
-        final_sc_summary.to_csv(os.path.join(self._output_dir, 'sc_summary.csv'))
         if self._infer_cfg.wandb_enable:
+            final_top_samples = pd.concat(wandb_table_rows)
+            final_sc_summary = _parse_designable(final_top_samples).round(2)
+            final_sc_summary.to_csv(os.path.join(self._output_dir, 'sc_summary.csv'))
             data = [[label, val[0]] for (label, val) in final_sc_summary.to_dict().items()]
             table = wandb.Table(data=data, columns = ["Metric", "value"])
             wandb.log({
