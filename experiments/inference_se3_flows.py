@@ -1,7 +1,7 @@
 """Script for running inference and sampling.
 
 Sample command:
-> python experiments/inference_se3_flows.py
+> python -W ignore experiments/inference_se3_flows.py
 
 """
 
@@ -14,7 +14,6 @@ import torch
 import subprocess
 import pandas as pd
 import shutil
-from datetime import datetime
 from biotite.sequence.io import fasta
 import GPUtil
 from typing import Optional
@@ -24,7 +23,6 @@ from analysis import metrics
 from data import utils as du
 from data import residue_constants
 from omegaconf import DictConfig, OmegaConf
-from openfold.data import data_transforms
 from openfold.utils.superimposition import superimpose
 import esm
 
@@ -36,13 +34,40 @@ log = eu.get_pylogger(__name__)
 
 
 CA_IDX = residue_constants.atom_order['CA']
-
+WANDB_TABLE_COLS = [
+    'tm_score', 'rmsd', 'helix_percent', 'strand_percent',
+    'mean_plddt', 'length', 'sample_id', 
+    'sample_pdb_path', 'esmf_pdb_path', 
+    'esmf', 'sample'
+]
 
 def _create_template_feats(num_res, device):
     return {        
         'res_mask': torch.ones(num_res, device=device)[None],
         'res_idx': torch.arange(1, num_res+1, device=device)[None],
     }
+
+
+def _parse_designable(result_df):
+    total_samples = result_df.shape[0]
+    sctm_designable = (result_df.tm_score > 0.5).sum()
+    sctm_confident = ((result_df.tm_score > 0.5) & (result_df.mean_plddt > 70)).sum()
+    scrmsd_designable = (result_df.rmsd < 2.0).sum()
+    scrmsd_confident = ((result_df.rmsd < 2.0) & (result_df.mean_plddt > 70)).sum()
+    return {
+        'scTM designable': sctm_designable,
+        'scTM confident': sctm_confident,
+        'scTM designable percent': sctm_designable / total_samples,
+        'scTM confident percent': sctm_confident / total_samples, 
+
+        'scRMSD designable': scrmsd_designable,
+        'scRMSD confident': scrmsd_confident,
+        'scRMSD designable percent': scrmsd_designable / total_samples, 
+        'scRMSD confident percent': scrmsd_confident / total_samples, 
+
+        'Helix percent': result_df.helix_percent.sum() / total_samples,
+        'Stand percent': result_df.strand_percent.sum() / total_samples,
+    } 
 
 
 class Sampler:
@@ -69,14 +94,6 @@ class Sampler:
         self._samples_cfg = self._infer_cfg.samples
         self._rng = np.random.default_rng(self._infer_cfg.seed)
 
-        # Set-up wandb
-        if self._infer_cfg.wandb_enable:
-            cfg_dict = OmegaConf.to_container(cfg, resolve=True)
-            wandb.init(
-                config=dict(eu.flatten_dict(cfg_dict)),
-                **cfg.wandb
-            )
-
         # Set-up accelerator
         if torch.cuda.is_available() and self._infer_cfg.use_gpu:
             available_gpus = ''.join(
@@ -95,9 +112,13 @@ class Sampler:
         ) 
         self._model.model = self._model.model.to(self.device)
         self._model.eval()
+        self._model_ckpt = torch.load(ckpt_path)
 
         # Set-up directories to write results to
-        self._output_dir = self._infer_cfg.output_dir
+        output_base_dir = self._infer_cfg.output_dir
+        ckpt_name = '_'.join(ckpt_path.replace('.ckpt', '').split('/')[-3:])
+        self._output_dir = os.path.join(
+            output_base_dir, ckpt_name, f'ts_{self._infer_cfg.num_timesteps}')
         os.makedirs(self._output_dir, exist_ok=True)
         log.info(f'Saving results to {self._output_dir}')
         config_path = os.path.join(self._output_dir, 'config.yaml')
@@ -109,6 +130,15 @@ class Sampler:
         torch.hub.set_dir(self._infer_cfg.pt_hub_dir)
         self._folding_model = esm.pretrained.esmfold_v1().eval()
         self._folding_model = self._folding_model.to(self.device)
+
+        # Set-up wandb
+        if self._infer_cfg.wandb_enable:
+            cfg_dict = OmegaConf.to_container(cfg, resolve=True)
+            wandb.init(
+                config=dict(eu.flatten_dict(cfg_dict)),
+                name=ckpt_name,
+                **self._infer_cfg.wandb
+            )
 
     def run_sampling(self):
         """Sets up inference run.
@@ -122,16 +152,22 @@ class Sampler:
             self._samples_cfg.max_length+1,
             self._samples_cfg.length_step
         )
+        wandb_table = None
+        if self._infer_cfg.wandb_enable:
+            wandb_table = wandb.Table(columns=WANDB_TABLE_COLS)
+        all_results = []
+        table_rows = []
         for sample_length in all_sample_lengths:
             length_dir = os.path.join(
                 self._output_dir, f'length_{sample_length}')
+            if os.path.isdir(length_dir) and not self._samples_cfg.overwrite:
+                log.info(f'Skipping {length_dir}')
+                continue
             os.makedirs(length_dir, exist_ok=True)
             log.info(f'Sampling length {sample_length}: {length_dir}')
-
+            length_results = []
             for sample_i in range(self._samples_cfg.samples_per_length):
                 sample_dir = os.path.join(length_dir, f'sample_{sample_i}')
-                if os.path.isdir(sample_dir):
-                    continue
                 os.makedirs(sample_dir, exist_ok=True)
                 init_feats = _create_template_feats(sample_length, self.device)
                 atom37_traj, model_traj = self._model.run_sampling(
@@ -153,12 +189,51 @@ class Sampler:
                 os.makedirs(sc_output_dir, exist_ok=True)
                 shutil.copy(pdb_path, os.path.join(
                     sc_output_dir, os.path.basename(pdb_path)))
-                _ = self.run_self_consistency(
+                sc_results = self.run_self_consistency(
                     sc_output_dir,
                     pdb_path,
                     motif_mask=None
                 )
+                sc_results['length'] = sample_length
+                sc_results['sample_id'] = sample_i
+                del sc_results['header']
+                del sc_results['sequence']
+
+                # Select the top sample
+                top_sample = sc_results.sort_values('rmsd', ascending=True).iloc[:1]
+                length_results.append(top_sample)
+
+                # Compute secondary structure metrics
+                sample_dict = top_sample.iloc[0].to_dict()
+                ss_metrics = metrics.calc_mdtraj_metrics(sample_dict['sample_pdb_path'])
+                top_sample['helix_percent'] = ss_metrics['helix_percent']
+                top_sample['strand_percent'] = ss_metrics['strand_percent']
+
+                if wandb_table is not None:
+                    sample_dict['esmf'] = wandb.Molecule(sample_dict['esmf_pdb_path'])
+                    sample_dict['sample'] = wandb.Molecule(sample_dict['sample_pdb_path'])
+                    table_rows.append([sample_dict[col] for col in WANDB_TABLE_COLS])
                 log.info(f'Done sample {sample_i}: {pdb_path}')
+            length_results = pd.concat(length_results)
+            designable_results = _parse_designable(length_results)
+            designable_results.to_csv(os.path.join(length_dir, 'sc_results.csv'))
+            length_results.to_csv(os.path.join(length_dir, 'length_summary.csv'))
+            if self._infer_cfg.wandb_enable:
+                wandb.log(designable_results, step=sample_length)
+                wandb.log({
+                    "Sample results": wandb.Table(
+                        columns=WANDB_TABLE_COLS,
+                        data=table_rows
+                    )
+                })
+            all_results.append(length_results)
+        if self._infer_cfg.wandb_enable:
+            # TODO: Re-read all results then write out
+            all_results = pd.concat(all_results)
+            global_results = _parse_designable(all_results)
+            wandb.log({
+                f'Global {k}': v for k,v in global_results.items()
+            }, step=self._model_ckpt['global_step'])
 
     def save_traj(
             self,
@@ -262,14 +337,17 @@ class Sampler:
             '0.1',
             '--seed',
             '38',
-            '--ze',
+            '--batch_size',
             '1',
             '--device',
             self.device.replace('cuda:', '')
         ]
-        os.makedirs(os.path.join(decoy_pdb_dir, 'seqs'))
+        if self._infer_cfg.use_ca_pmpnn:
+            pmpnn_args.append('--ca_only')
+
+        os.makedirs(os.path.join(decoy_pdb_dir, 'seqs'), exist_ok=True)
         process = subprocess.Popen(pmpnn_args, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-        ret = process.wait()
+        _ = process.wait()
         mpnn_fasta_path = os.path.join(
             decoy_pdb_dir,
             'seqs',
@@ -278,10 +356,12 @@ class Sampler:
         # Run ESMFold on each ProteinMPNN sequence and calculate metrics.
         mpnn_results = {
             'tm_score': [],
-            'sample_path': [],
+            'sample_pdb_path': [],
             'header': [],
             'sequence': [],
             'rmsd': [],
+            'mean_plddt': [],
+            'esmf_pdb_path': [],
         }
         if motif_mask is not None:
             # Only calculate motif RMSD if mask is specified.
@@ -294,7 +374,8 @@ class Sampler:
 
             # Run ESMFold
             esmf_sample_path = os.path.join(esmf_dir, f'sample_{i}.pdb')
-            _ = self.run_folding(string, esmf_sample_path)
+            esmf_outputs = self.run_folding(string, esmf_sample_path)
+            mean_plddt = esmf_outputs['mean_plddt'][0].item()
             esmf_feats = du.parse_pdb_feats('folded_sample', esmf_sample_path)
             sample_seq = du.aatype_to_seq(sample_feats['aatype'])
 
@@ -309,7 +390,7 @@ class Sampler:
                 torch.tensor(esmf_bb_pos[None]),
                 torch.tensor(res_mask[None])
             )
-            rmsd = rmsd[0]
+            rmsd = rmsd[0].item()
             if motif_mask is not None:
                 sample_motif = sample_feats['bb_positions'][motif_mask]
                 of_motif = esmf_feats['bb_positions'][motif_mask]
@@ -318,22 +399,26 @@ class Sampler:
                 mpnn_results['motif_rmsd'].append(motif_rmsd)
             mpnn_results['rmsd'].append(rmsd)
             mpnn_results['tm_score'].append(tm_score)
-            mpnn_results['sample_path'].append(esmf_sample_path)
+            mpnn_results['esmf_pdb_path'].append(esmf_sample_path)
+            mpnn_results['sample_pdb_path'].append(reference_pdb_path)
             mpnn_results['header'].append(header)
             mpnn_results['sequence'].append(string)
+            mpnn_results['mean_plddt'].append(mean_plddt)
 
         # Save results to CSV
         csv_path = os.path.join(decoy_pdb_dir, 'sc_results.csv')
         mpnn_results = pd.DataFrame(mpnn_results)
         mpnn_results.to_csv(csv_path)
+        return mpnn_results
 
     def run_folding(self, sequence, save_path):
         """Run ESMFold on sequence."""
         with torch.no_grad():
-            output = self._folding_model.infer_pdb(sequence)
+            output = self._folding_model.infer(sequence)
+            pdb_output = self._folding_model.output_to_pdb(output)[0]
 
         with open(save_path, "w") as f:
-            f.write(output)
+            f.write(pdb_output)
         return output
 
     def sample(self, sample_length: int):

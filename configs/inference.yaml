@@ -4,25 +4,27 @@ defaults:
   - base
 
 inference:
-  name: inference
+  name: null
   seed: 123
-  ckpt_path: ckpt/se3-fm/warm_start/2023-08-30_17-36-07/last.ckpt
+  # ckpt_path: ckpt/se3-fm/batchot_permute/2023-09-05_20-48-36/last.ckpt 
+  ckpt_path: ckpt/se3-fm/warm_start/2023-09-05_20-21-01/last.ckpt
+  # ckpt_path: ckpt/se3-fm/flower/2023-09-05_20-34-26/last.ckpt
   use_gpu: True
+  use_ca_pmpnn: True
 
   # Number of steps.
-  num_timesteps: 500
+  num_timesteps: 1000
 
   # Directory of software, weights, and outputs.
   pt_hub_dir: ./.cache/torch/
   pmpnn_dir: ./ProteinMPNN
-  output_dir: ./inference_outputs/${inference.name}/${now:%Y-%m-%d}_${now:%H-%M-%S}
+  output_dir: ./inference_outputs/
 
-  wandb_enable: False
+  wandb_enable: True
   wandb:
-    name: ${inference.name}
     project: se3-fm-inference
-    tags: []
-    dir: .wandb_inference
+    tags: ['ts_${inference.num_timesteps}']
+    resume: True
 
   samples:
     # Number of backbone samples per sequence length.
@@ -36,3 +38,4 @@ inference:
     # gap between lengths to sample. i.e. this script will sample all lengths
     # in range(min_length, max_length, length_step)
     length_step: 1
+    overwrite: False
