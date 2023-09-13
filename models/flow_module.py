@@ -17,11 +17,11 @@ from data import utils as du
 from analysis import utils as au
 from analysis import metrics
 from scipy.spatial.transform import Rotation 
-from openfold.utils import superimposition
 from data import so3_utils
 from pytorch_lightning.loggers.wandb import WandbLogger
 from scipy.optimize import linear_sum_assignment
 from openfold.utils import rigid_utils as ru
+from data import r3_diffuser
 
 CA_IDX = metrics.CA_IDX
 
@@ -117,14 +117,7 @@ class FlowModule(LightningModule):
         device = gt_trans_1.device
         num_batch, num_res, _ = gt_trans_1.shape
         if t is None:
-            if self._exp_cfg.training.t_sampler == 'bias':
-                t_1 =  torch.rand(num_batch // 2, 1, 1, device=device) * 0.20
-                t_2 =  torch.rand(num_batch - t_1.shape[0], 1, 1, device=device)
-                t = torch.concat([t_1, t_2], dim=0)
-            elif self._exp_cfg.training.t_sampler == 'uniform':
-                t = torch.rand(num_batch, 1, 1, device=device)
-            else:
-                raise NotImplementedError()
+            t = torch.rand(num_batch, 1, 1, device=device)
         batch['t'] = t[:, 0]
 
         if self._exp_cfg.batch_ot.enabled:
@@ -133,7 +126,13 @@ class FlowModule(LightningModule):
             trans_nm_0 = self._centered_gaussian(gt_trans_1.shape, device) 
 
         if self._exp_cfg.noise_trans:
-            trans_nm_t = (1 - t) * trans_nm_0 + t * gt_trans_1 * du.ANG_TO_NM_SCALE
+            if self._exp_cfg.trans_schedule == 'linear':
+                trans_nm_t = (1 - t) * trans_nm_0 + t * gt_trans_1 * du.ANG_TO_NM_SCALE
+            elif self._exp_cfg.trans_schedule == 'logarithmic':
+                r3_diff = r3_diffuser.R3Diffuser()
+                trans_nm_t =  r3_diff.forward_marginal(trans_nm_0, 1-t)
+            else:
+                raise NotImplementedError()
             trans_nm_t *= res_mask[..., None]
             batch['trans_t'] = trans_nm_t * du.NM_TO_ANG_SCALE
         else:
@@ -141,10 +140,11 @@ class FlowModule(LightningModule):
 
         if self._exp_cfg.noise_rots:
             rotmats_0 = torch.tensor(
-                Rotation.random(num_res).as_matrix(),
+                Rotation.random(num_batch*num_res).as_matrix(),
                 device=device,
                 dtype=torch.float32
             )
+            rotmats_0 = rotmats_0.reshape(num_batch, num_res, 3, 3)
             rotmats_t = so3_utils.geodesic_t(t, gt_rotmats_1, rotmats_0)
             rotmats_t = (
                 rotmats_t * res_mask[..., None, None]
@@ -162,7 +162,7 @@ class FlowModule(LightningModule):
         gt_trans_1 = batch['trans_1']
         gt_rotmats_1 = batch['rotmats_1']
         res_mask = batch['res_mask']
-        gt_bb_atoms = all_atom.to_atom37(gt_trans_1, gt_rotmats_1)[:, :, :4] 
+        gt_bb_atoms = all_atom.to_atom37(gt_trans_1, gt_rotmats_1)[:, :, :3] 
         
         noisy_batch = self._corrupt_batch(batch)
         model_output = self.model(noisy_batch)
@@ -178,7 +178,7 @@ class FlowModule(LightningModule):
         )
 
         pred_rotvecs_1 = so3_utils.rotmat_to_rotvec(pred_rotmats_1)
-        pred_bb_atoms = all_atom.to_atom37(pred_trans_1, pred_rotmats_1)[:, :, :4]
+        pred_bb_atoms = all_atom.to_atom37(pred_trans_1, pred_rotmats_1)[:, :, :3]
 
         gt_bb_atoms *= du.ANG_TO_NM_SCALE
         pred_bb_atoms *= du.ANG_TO_NM_SCALE
@@ -284,9 +284,7 @@ class FlowModule(LightningModule):
             Rotation.random(num_batch*num_res).as_matrix(),
             device=device,
             dtype=torch.float32,
-        )
-        if rots_0.ndim == 3:
-            rots_0 = rots_0[None]
+        ).reshape(num_batch, num_res, 3, 3)
         
         prot_traj = [(trans_0, rots_0)]
         if num_timesteps is None:
@@ -316,9 +314,21 @@ class FlowModule(LightningModule):
             model_traj.append(
                 (pred_trans_1.detach().cpu(), pred_rots_1.detach().cpu())
             )
-
-            trans_vf = (pred_trans_1 - trans_t_1) / (1 - t_1)
-            trans_t_2 = trans_t_1 + trans_vf * d_t
+            if self._exp_cfg.trans_schedule == 'linear':
+                trans_vf = (pred_trans_1 - trans_t_1) / (1 - t_1)
+                trans_t_2 = trans_t_1 + trans_vf * d_t
+            elif self._exp_cfg.trans_schedule == 'logarithmic':
+                r3_diff = r3_diffuser.R3Diffuser()
+                g_t = r3_diff.diffusion_coef(1-t_1)
+                trans_nm_t_1 = trans_t_1 * 0.1
+                f_t = r3_diff.drift_coef(trans_t_1*0.1, 1-t_1)
+                pred_trans_nm_1 = pred_trans_1 * 0.1
+                score_t = r3_diff.score(trans_nm_t_1, pred_trans_nm_1, 1 - t_1)
+                trans_nm_t_2 = trans_nm_t_1 - (f_t - 0.5*g_t**2 * score_t) * d_t
+                trans_t_2 = trans_nm_t_2 * 10.0
+            else:
+                raise NotImplementedError()
+            
             if self._model_cfg.predict_rot_vf:
                 rots_t_2 = so3_utils.geodesic_t(
                     d_t / (1 - t_1), pred_rots_1, rots_t_1, rot_vf=pred_rots_vf)

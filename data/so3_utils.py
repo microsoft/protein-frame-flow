@@ -509,6 +509,9 @@ def geodesic_t(t: float, mat: torch.Tensor, base_mat: torch.Tensor, rot_vf=None)
     if rot_vf is None:
         rot_vf = calc_rot_vf(base_mat, mat)
     mat_t = rotvec_to_rotmat(t * rot_vf)
+    if base_mat.shape != mat_t.shape:
+        raise ValueError(
+            f'Incompatible shapes: base_mat={base_mat.shape}, mat_t={mat_t.shape}')
     return torch.einsum("...ij,...jk->...ik", base_mat, mat_t)
 
 

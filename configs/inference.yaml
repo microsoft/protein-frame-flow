@@ -8,10 +8,10 @@ inference:
   seed: 123
 
   # https://wandb.ai/jyim/se3-fm/runs/0sfpo74r/overview
-  # ckpt_path: ckpt/se3-fm/warm_start/2023-09-05_20-21-01/last.ckpt
+  ckpt_path: ckpt/se3-fm/warm_start/2023-09-05_20-21-01/last.ckpt
 
   # https://wandb.ai/jyim/se3-fm/runs/z0zlh0xs/overview
-  ckpt_path: ckpt/se3-fm/flower/2023-09-05_20-34-26/last.ckpt
+  # ckpt_path: ckpt/se3-fm/flower/2023-09-05_20-34-26/last.ckpt
   
   use_gpu: True
   use_ca_pmpnn: True

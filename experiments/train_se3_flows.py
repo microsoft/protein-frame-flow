@@ -37,6 +37,7 @@ class Experiment:
         if self._exp_cfg.debug:
             log.info("Debug mode.")
             logger = None
+            self._exp_cfg.num_devices = 1
         else:
             logger = WandbLogger(
                 **self._exp_cfg.wandb,

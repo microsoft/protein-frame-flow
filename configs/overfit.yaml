@@ -6,7 +6,7 @@ data:
   dataset:
     max_num_res: 110
     min_num_res: 100
-    subset: 2
+    subset: 10
   sampler:
     num_batches: 1000
 
