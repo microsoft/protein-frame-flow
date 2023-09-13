@@ -273,7 +273,25 @@ class FlowModule(LightningModule):
             return_traj=False,
             return_model_outputs=False,
             num_timesteps=None,
+            do_sde=None,
         ):
+        if do_sde is None:
+            do_sde = self._sampling_cfg.sampling.do_sde
+
+        if not do_sde:
+            return self.run_ode_sampling(batch, return_traj, return_model_outputs, num_timesteps)
+        else:
+            return self.run_sde_sampling(batch, return_traj, return_model_outputs, num_timesteps)
+
+    @torch.no_grad()
+    def run_ode_sampling(
+        self,
+        batch: Any,
+        return_traj,
+        return_model_outputs,
+        num_timesteps,
+        ):
+
         batch, _ = batch
         res_mask = batch['res_mask']
         device = res_mask.device
@@ -347,6 +365,125 @@ class FlowModule(LightningModule):
             return atom37_traj, model_traj
         return atom37_traj
         
+    @torch.no_grad()
+    def run_sde_sampling(
+        self,
+        batch: Any,
+        return_traj,
+        return_model_outputs,
+        num_timesteps,
+        ):
+
+        batch, _ = batch
+        res_mask = batch['res_mask']
+        device = res_mask.device
+        num_batch, num_res = res_mask.shape[:2]
+        trans_0 = self._centered_gaussian(
+            (num_batch, num_res, 3), device) * du.NM_TO_ANG_SCALE
+        rots_0 = torch.tensor(
+            Rotation.random(num_batch*num_res).as_matrix(),
+            device=device,
+            dtype=torch.float32,
+        ).view(num_batch, num_res, 3, 3)
+        if rots_0.ndim == 3:
+            rots_0 = rots_0[None]
+
+        prot_traj = [(trans_0, rots_0)]
+        if num_timesteps is None:
+            num_timesteps = self._sampling_cfg.num_timesteps
+
+        # Run sampling from t=1.0 back to t=0.0 (flipped definition of time)
+        # Avoid singularities near both end points
+        # use 1/num_timesteps because if d_t >> min_t then you can still get explosions
+        ts = np.linspace(1.0 - (1/num_timesteps), self._sampling_cfg.min_t, num_timesteps)
+        t_1 = ts[0]
+        model_traj = []
+        for t_2 in ts[1:]:
+            d_t = t_2 - t_1
+            trans_t_1, rots_t_1 = prot_traj[-1]
+            with torch.no_grad():
+                if self._exp_cfg.noise_trans:
+                    batch['trans_t'] = trans_t_1
+                else:
+                    batch['trans_t'] = batch['trans_1']
+                if self._exp_cfg.noise_rots:
+                    batch['rotmats_t'] = rots_t_1
+                else:
+                    batch['rotmats_t'] = batch['rotmats_1']
+
+                # flip time
+                batch['t'] = torch.ones((num_batch, 1)).to(device) * (1 - t_1)
+
+                model_out = self.forward(batch)
+
+            pred_trans_1 = model_out['pred_trans']
+            pred_rots_1 = model_out['pred_rotmats']
+            pred_rots_vf = model_out['pred_rots_vf']
+
+            model_traj.append(
+                (pred_trans_1.detach().cpu(), pred_rots_1.detach().cpu())
+            )
+            assert d_t < 0
+
+            # Euler-Maruyama step on the translations
+            trans_score = ((1 - t_1) * pred_trans_1 - trans_t_1) / (t_1**2 * du.NM_TO_ANG_SCALE**2)
+            trans_t_2 = (((-1)/(1-t_1)) * trans_t_1 - du.NM_TO_ANG_SCALE**2 * ((2 * t_1) / (1 - t_1)) * trans_score) * d_t + trans_t_1
+            trans_t_2 = trans_t_2 + torch.randn_like(trans_t_2) * np.sqrt( (-d_t) * (2 * t_1) / (1 - t_1)  ) * du.NM_TO_ANG_SCALE
+
+            # ODE step on the rotations
+
+            # Not sure how to deal with this case
+            assert not self._model_cfg.predict_rot_vf
+
+            rots_t_2 = so3_utils.geodesic_t(
+                (-d_t) / t_1, pred_rots_1, rots_t_1) 
+
+            t_1 = t_2
+            if return_traj:
+                prot_traj.append((trans_t_2, rots_t_2))
+            else:
+                prot_traj[-1] = (trans_t_2, rots_t_2)
+
+        # We only integrated to min_t, so need to make a final step
+        t_1 = ts[-1]
+        trans_t_1, rots_t_1 = prot_traj[-1]
+        with torch.no_grad():
+            if self._exp_cfg.noise_trans:
+                batch['trans_t'] = trans_t_1
+            else:
+                batch['trans_t'] = batch['trans_1']
+            if self._exp_cfg.noise_rots:
+                batch['rotmats_t'] = rots_t_1
+            else:
+                batch['rotmats_t'] = batch['rotmats_1']
+            batch['t'] = torch.ones((num_batch, 1)).to(device) * (1 - t_1)
+            model_out = self.forward(batch)
+
+        pred_trans_1 = model_out['pred_trans']
+        pred_rots_1 = model_out['pred_rotmats']
+        pred_rots_vf = model_out['pred_rots_vf']
+
+        trans_t_2 = pred_trans_1
+        rots_t_2 = pred_rots_1
+
+        model_traj.append(
+            (pred_trans_1.detach().cpu(), pred_rots_1.detach().cpu())
+        )
+
+        if return_traj:
+            prot_traj.append((trans_t_2, rots_t_2))
+        else:
+            prot_traj[-1] = (trans_t_2, rots_t_2)
+
+
+        atom37_traj = all_atom.transrot_to_atom37(prot_traj, res_mask)
+        if return_model_outputs:
+            model_traj = all_atom.transrot_to_atom37(model_traj, res_mask)
+            return atom37_traj, model_traj
+        return atom37_traj
+
+
+
     def _log_scalar(self, key, value, on_step=True, on_epoch=False, prog_bar=True, batch_size=None, sync_dist=False, rank_zero_only=True):
         if sync_dist and rank_zero_only:
             raise ValueError('Unable to sync dist when rank_zero_only=True')
