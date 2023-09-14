@@ -16,12 +16,14 @@ from data import all_atom
 from data import utils as du
 from analysis import utils as au
 from analysis import metrics
+from analysis import self_consistency
 from scipy.spatial.transform import Rotation 
 from openfold.utils import superimposition
 from data import so3_utils
 from pytorch_lightning.loggers.wandb import WandbLogger
 from scipy.optimize import linear_sum_assignment
 from openfold.utils import rigid_utils as ru
+import esm
 
 CA_IDX = metrics.CA_IDX
 
@@ -528,6 +530,54 @@ class FlowModule(LightningModule):
             params=self.model.parameters(),
             **self._exp_cfg.optimizer
         )
+
+    def predict_step(self, batch, batch_idx):
+
+        # Set self._infer_cfg to pass in sampling settings
+        assert hasattr(self, '_infer_cfg')
+        assert self._infer_cfg is not None
+        assert hasattr(self, '_samples_cfg')
+        assert hasattr(self, '_output_dir')
+
+        atom37_traj = self.run_sampling(
+            batch=batch,
+            return_traj=False,
+            return_model_outputs=False,
+            num_timesteps=self._infer_cfg.num_timesteps,
+            do_sde=self._infer_cfg.do_sde
+        )
+        # atom37_traj is list of length 1 with the element a tensor
+        # of shape (batch_size, max_res, 37, 3)
+
+        batch_size, max_res, _, _ = atom37_traj[0].shape
+        assert atom37_traj[0].shape == (batch_size, max_res, 37, 3)
+        assert len(atom37_traj) == 1
+
+        assert batch[0]['res_mask'].shape == (batch_size, max_res)
+
+        # zero out the masked residues for use in identifying length later
+        atom37_traj[0] = atom37_traj[0] * batch[0]['res_mask'].view(batch_size, max_res, 1, 1).cpu()
+
+        if self._folding_model is None:
+            device_idx = torch.cuda.current_device()
+            device = f'cuda:{device_idx}'
+            torch.hub.set_dir(self._infer_cfg.pt_hub_dir)
+            self._folding_model = esm.pretrained.esmfold_v1().eval()
+            self._folding_model = self._folding_model.to(device)
+
+
+        # save self consistency results to files
+        self_consistency.run_self_consistency(
+            atom37=atom37_traj[0],
+            output_dir=self._output_dir,
+            batch_idx=batch_idx,
+            folding_model=self._folding_model,
+            pmpnn_dir=self._infer_cfg.pmpnn_dir,
+            seq_per_sample=self._samples_cfg.seq_per_sample,
+            use_ca_pmpnn=self._infer_cfg.use_ca_pmpnn,
+        )
+
+        return atom37_traj
     
     
 def t_stratified_loss(batch_t, batch_loss, num_bins=4, loss_name=None):

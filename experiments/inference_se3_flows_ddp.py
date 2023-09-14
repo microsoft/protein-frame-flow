@@ -1,5 +1,7 @@
 """Script for running inference and evaluation.
 
+# TODO Update this with DDP instructions
+
 Assuming flow-matching is the base directory. Quick start command:
 > python -W ignore experiments/inference_se3_flows.py
 
@@ -75,6 +77,7 @@ import shutil
 from biotite.sequence.io import fasta
 import GPUtil
 from typing import Optional
+from glob import glob
 
 from analysis import utils as au
 from analysis import metrics
@@ -86,6 +89,9 @@ import esm
 from experiments import utils as eu
 from models.flow_module import FlowModule
 import wandb
+from pytorch_lightning.loggers.wandb import WandbLogger
+from pytorch_lightning import Trainer
+import torch.distributed as dist
 
 log = eu.get_pylogger(__name__)
 
@@ -103,6 +109,27 @@ def _create_template_feats(num_res, device):
         'res_idx': torch.arange(1, num_res+1, device=device)[None],
     }
 
+class BlankDataset(torch.utils.data.Dataset):
+    def __init__(self, min_res, max_res, num_samples_per_res_len):
+        # Will sample num_samples_per_res_len samples for each res length between
+        # min_res and max_res inclusive
+
+        self.min_res = min_res
+        self.max_res = max_res
+        self.num_samples_per_res_len = num_samples_per_res_len
+
+    def __len__(self):
+        return self.num_samples_per_res_len * (self.max_res - self.min_res + 1)
+
+    def __getitem__(self, idx):
+        num_res = idx // self.num_samples_per_res_len + self.min_res
+        res_mask = torch.zeros(self.max_res)
+        res_mask[0:num_res] = 1.0
+        template =  {        
+            'res_mask': res_mask,
+            'res_idx': torch.arange(1, self.max_res+1),
+        }
+        return template, 'sample'
 
 def _parse_designable(result_df):
     total_samples = result_df.shape[0]
@@ -150,15 +177,15 @@ class Sampler:
         self._samples_cfg = self._infer_cfg.samples
         self._rng = np.random.default_rng(self._infer_cfg.seed)
 
-        # Set-up accelerator
-        if torch.cuda.is_available() and self._infer_cfg.use_gpu:
-            available_gpus = ''.join(
-                [str(x) for x in GPUtil.getAvailable(
-                    order='memory', limit = 8)])
-            self.device = f'cuda:{available_gpus[0]}'
-        else:
-            self.device = 'cpu'
-        log.info(f'Using device: {self.device}')
+        # # Set-up accelerator
+        # if torch.cuda.is_available() and self._infer_cfg.use_gpu:
+        #     available_gpus = ''.join(
+        #         [str(x) for x in GPUtil.getAvailable(
+        #             order='memory', limit = 8)])
+        #     self.device = f'cuda:{available_gpus[0]}'
+        # else:
+        #     self.device = 'cpu'
+        # log.info(f'Using device: {self.device}')
 
         # Set-up ckpt model
         self._model = FlowModule.load_from_checkpoint(
@@ -166,9 +193,13 @@ class Sampler:
             model_cfg=self._cfg.model,
             experiment_cfg=self._cfg.experiment
         ) 
-        self._model.model = self._model.model.to(self.device)
+        # self._model.model = self._model.model.to(self.device)
         self._model.eval()
-        self._model_ckpt = torch.load(ckpt_path)
+        # self._model_ckpt = torch.load(ckpt_path)
+
+        self._model._infer_cfg = self._infer_cfg # how to pass in sampling settings
+        self._model._folding_model = None
+        self._model._samples_cfg = self._samples_cfg
 
         # Set-up directories to write results to
         output_base_dir = self._infer_cfg.output_dir
@@ -185,10 +216,7 @@ class Sampler:
             OmegaConf.save(config=self._cfg, f=f)
         log.info(f'Saving inference config to {config_path}')
 
-        # Load models and experiment
-        torch.hub.set_dir(self._infer_cfg.pt_hub_dir)
-        self._folding_model = esm.pretrained.esmfold_v1().eval()
-        self._folding_model = self._folding_model.to(self.device)
+        self._model._output_dir = self._output_dir
 
         # Set-up wandb
         if self._infer_cfg.wandb_enable:
@@ -198,6 +226,86 @@ class Sampler:
                 name=ckpt_name,
                 **self._infer_cfg.wandb
             )
+
+
+    def ddp_sampling(self):
+
+        batch_size_per_gpu = self._infer_cfg.batch_size_per_gpu
+        num_gpus = self._infer_cfg.num_gpus
+        samples_per_length = self._samples_cfg.samples_per_length
+
+        blank_dataset = BlankDataset(min_res=self._samples_cfg.min_length, max_res=self._samples_cfg.max_length,
+            num_samples_per_res_len=samples_per_length)
+
+        dataloader = torch.utils.data.DataLoader(blank_dataset, batch_size=batch_size_per_gpu, shuffle=False)
+
+        # TODO maybe use something else
+        logger = WandbLogger(name="test", project="se3-fm")
+
+        trainer = Trainer(accelerator="gpu", strategy="ddp", devices=num_gpus,
+                        logger=logger)
+
+        trainer.predict(self._model, return_predictions=True, dataloaders=dataloader)
+
+
+        # finish up the analysis
+
+        wandb_sc_summary = []
+        wandb_table_rows = []
+
+        for sample_length in range(self._samples_cfg.min_length, self._samples_cfg.max_length+1):
+            length_dir = os.path.join(
+                self._output_dir, f'length_{sample_length}')
+            os.makedirs(length_dir, exist_ok=True)
+            length_top_samples = []
+
+            sample_dirs = sorted(glob(os.path.join(length_dir, 'sample_batch_*')))
+
+            for sample_dir in sample_dirs:
+                sc_output_dir = os.path.join(sample_dir, 'self_consistency')
+                top_sample_path = os.path.join(sample_dir, 'top_sample.csv')
+                sc_result_path = os.path.join(sc_output_dir, 'sc_results.csv')
+
+                sc_results = pd.read_csv(sc_result_path)
+
+                sc_results['length'] = sample_length
+                sc_results['sample_id'] = sample_dir.split('/')[-1]
+                del sc_results['header']
+                del sc_results['sequence']
+
+                # Select the top sample
+                top_sample = sc_results.sort_values('rmsd', ascending=True).iloc[:1]
+                length_top_samples.append(top_sample)
+
+                # Compute secondary structure metrics
+                sample_dict = top_sample.iloc[0].to_dict()
+                ss_metrics = metrics.calc_mdtraj_metrics(sample_dict['sample_pdb_path'])
+                top_sample['helix_percent'] = ss_metrics['helix_percent']
+                top_sample['strand_percent'] = ss_metrics['strand_percent']
+                top_sample.to_csv(top_sample_path)
+
+
+            if self._infer_cfg.wandb_enable:
+                length_top_samples.to_csv(os.path.join(length_dir, 'top_samples.csv'))
+                wandb_table_rows.append(length_top_samples)
+                designable_results = _parse_designable(length_top_samples)
+                designable_results['length'] = sample_length
+                designable_results.to_csv(os.path.join(length_dir, 'sc_summary.csv'))
+                wandb_sc_summary.append(designable_results)
+                self.log_wandb_results(pd.concat(wandb_table_rows), wandb_sc_summary)
+
+        if self._infer_cfg.wandb_enable:
+            final_top_samples = pd.concat(wandb_table_rows)
+            final_sc_summary = _parse_designable(final_top_samples).round(2)
+            final_sc_summary.to_csv(os.path.join(self._output_dir, 'sc_summary.csv'))
+            data = [[label, val[0]] for (label, val) in final_sc_summary.to_dict().items()]
+            table = wandb.Table(data=data, columns = ["Metric", "value"])
+            wandb.log({
+                "Final metrics" : wandb.plot.bar(
+                    table, "Metric", "value", title="Final metrics")
+            })
+        
+
 
     def _within_length_sampling(self, length_dir, sample_length):
         length_top_samples = []
@@ -453,7 +561,7 @@ class Sampler:
             '--batch_size',
             '1',
             '--device',
-            self.device.replace('cuda:', '')
+            str(torch.cuda.current_device()),
         ]
         if self._infer_cfg.use_ca_pmpnn:
             pmpnn_args.append('--ca_only')
@@ -577,14 +685,15 @@ class Sampler:
         )
         return tree.map_structure(lambda x: x[:, 0], sample_out)
 
-@hydra.main(version_base=None, config_path="../configs", config_name="inference")
+@hydra.main(version_base=None, config_path="../configs", config_name="inference_ddp")
 def run(cfg: DictConfig) -> None:
 
     # Read model checkpoint.
     log.info('Starting inference')
     start_time = time.time()
     sampler = Sampler(cfg)
-    sampler.run_length_sampling()
+    sampler.ddp_sampling()
+    # sampler.run_length_sampling()
     elapsed_time = time.time() - start_time
     log.info(f'Finished in {elapsed_time:.2f}s')
 

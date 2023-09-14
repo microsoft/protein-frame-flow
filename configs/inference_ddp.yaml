@@ -4,7 +4,7 @@ defaults:
   - _self_
 
 inference:
-  name: null
+  name: ddp_test
   seed: 123
 
   # https://wandb.ai/jyim/se3-fm/runs/0sfpo74r/overview
@@ -20,15 +20,18 @@ inference:
 
   # Number of steps.
   num_timesteps: 100
-
   do_sde: False
+
+  # DDP settings.
+  num_gpus: 4
+  batch_size_per_gpu: 4
 
   # Directory of software, weights, and outputs.
   pt_hub_dir: ./.cache/torch/
   pmpnn_dir: ./ProteinMPNN
   output_dir: ./inference_outputs/
 
-  wandb_enable: True
+  wandb_enable: False
   wandb:
     project: se3-fm-inference
     tags: ['ts_${inference.num_timesteps}']
@@ -39,10 +42,6 @@ inference:
     # Number of ESMFdold samples per backbone sample.
     seq_per_sample: 8
     # Minimum sequence length to sample.
-    min_length: 60
+    min_length: 60 # 60
     # Maximum sequence length to sample.
-    max_length: 128
-    # gap between lengths to sample. i.e. this script will sample all lengths
-    # in range(min_length, max_length, length_step)
-    length_step: 1
-    overwrite: False
+    max_length: 64 # 128
