@@ -4,7 +4,7 @@ defaults:
 
 experiment:
   num_devices: 4
-  warm_start: ckpt/se3-fm/warm_start/2023-08-30_17-36-07/last.ckpt
+  warm_start: ckpt/se3-fm/warm_start/2023-09-05_20-21-01/last.ckpt
   
   wandb:
     name: warm_start

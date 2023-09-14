@@ -133,6 +133,7 @@ experiment:
   noise_trans: True
   noise_rots: True
   use_swa: False
+  trans_schedule: linear
   batch_ot:
     enabled: True
     cost: kabsch
@@ -146,6 +147,7 @@ experiment:
   wandb:
     name: baseline
     project: se3-fm
+    save_code: True
     tags: ['baseline']
   optimizer:
     lr: 0.0001
