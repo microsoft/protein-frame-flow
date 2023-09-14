@@ -538,7 +538,7 @@ class FlowModule(LightningModule):
             params=self.model.parameters(),
             **self._exp_cfg.optimizer
         )
-    
+
     
 def t_stratified_loss(batch_t, batch_loss, num_bins=4, loss_name=None):
     """Stratify loss by binning t."""
