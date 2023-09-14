@@ -31,7 +31,7 @@ inference:
   pmpnn_dir: ./ProteinMPNN
   output_dir: ./inference_outputs/
 
-  wandb_enable: False
+  wandb_enable: True
   wandb:
     project: se3-fm-inference
     tags: ['ts_${inference.num_timesteps}']
@@ -42,6 +42,6 @@ inference:
     # Number of ESMFdold samples per backbone sample.
     seq_per_sample: 8
     # Minimum sequence length to sample.
-    min_length: 60 # 60
+    min_length: 60
     # Maximum sequence length to sample.
-    max_length: 64 # 128
+    max_length: 128
