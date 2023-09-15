@@ -14,7 +14,7 @@ data:
   sampler:
     max_batch_size: 128
     max_num_res_squared: 1_000_000
-    batch_repeats: 1
+    use_batch_repeats: True
     num_batches: null
 
 model:

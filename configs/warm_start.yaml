@@ -3,8 +3,8 @@ defaults:
   - _self_
 
 experiment:
-  num_devices: 4
-  warm_start: ckpt/se3-fm/warm_start/2023-09-05_20-21-01/last.ckpt
+  num_devices: 2
+  warm_start: ckpt/se3-fm/baseline_fixed/2023-09-13_08-12-53/last.ckpt
   
   wandb:
     name: warm_start

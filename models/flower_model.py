@@ -27,11 +27,10 @@ class Flower(nn.Module):
         node_mask = input_feats['res_mask']
         edge_mask = node_mask[:, None] * node_mask[:, :, None]
         continuous_t = input_feats['t']
-        discrete_t = torch.floor(1000 * continuous_t)
 
         # Initialize node and edge embeddings
         init_node_embed = self.node_feature_net(
-            discrete_t, node_mask)
+            continuous_t, node_mask)
         init_edge_embed = self.edge_feature_net(
             init_node_embed, input_feats['trans_t'], edge_mask)
 

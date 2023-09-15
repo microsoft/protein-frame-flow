@@ -123,7 +123,7 @@ class FlowModule(LightningModule):
         if self._exp_cfg.batch_ot.enabled:
             trans_nm_0 = self._batch_ot(gt_trans_1, res_mask)
         else:
-            trans_nm_0 = self._centered_gaussian(gt_trans_1.shape, device) 
+            trans_nm_0 = self._centered_gaussian(gt_trans_1.shape, device)
 
         if self._exp_cfg.noise_trans:
             if self._exp_cfg.trans_schedule == 'linear':
@@ -162,6 +162,7 @@ class FlowModule(LightningModule):
         gt_trans_1 = batch['trans_1']
         gt_rotmats_1 = batch['rotmats_1']
         res_mask = batch['res_mask']
+        num_batch, num_res = res_mask.shape[:2]
         gt_bb_atoms = all_atom.to_atom37(gt_trans_1, gt_rotmats_1)[:, :, :3] 
         
         noisy_batch = self._corrupt_batch(batch)
@@ -207,14 +208,43 @@ class FlowModule(LightningModule):
             dim=(-1, -2)
         ) / loss_denom
 
+        # Pairwise distance loss
+        gt_flat_atoms = gt_bb_atoms.reshape([num_batch, num_res*3, 3]) * du.NM_TO_ANG_SCALE
+        gt_pair_dists = torch.linalg.norm(
+            gt_flat_atoms[:, :, None, :] - gt_flat_atoms[:, None, :, :], dim=-1)
+        pred_flat_atoms = pred_bb_atoms.reshape([num_batch, num_res*3, 3]) * du.NM_TO_ANG_SCALE
+        pred_pair_dists = torch.linalg.norm(
+            pred_flat_atoms[:, :, None, :] - pred_flat_atoms[:, None, :, :], dim=-1)
+
+        flat_loss_mask = torch.tile(res_mask[:, :, None], (1, 1, 3))
+        flat_loss_mask = flat_loss_mask.reshape([num_batch, num_res*3])
+        flat_res_mask = torch.tile(res_mask[:, :, None], (1, 1, 3))
+        flat_res_mask = flat_res_mask.reshape([num_batch, num_res*3])
+
+        gt_pair_dists = gt_pair_dists * flat_loss_mask[..., None]
+        pred_pair_dists = pred_pair_dists * flat_loss_mask[..., None]
+        pair_dist_mask = flat_loss_mask[..., None] * flat_res_mask[:, None, :]
+
+        # No loss on anything >12A
+        proximity_mask = gt_pair_dists < 12
+        pair_dist_mask  = pair_dist_mask * proximity_mask
+
+        dist_mat_loss = torch.sum(
+            (gt_pair_dists - pred_pair_dists)**2 * pair_dist_mask,
+            dim=(1, 2))
+        dist_mat_loss /= (torch.sum(pair_dist_mask, dim=(1, 2)) - num_res)
+
         se3_loss = trans_loss + rots_loss
         se3_vf_loss = trans_loss + rots_vf_loss
+        full_dist_loss = bb_atom_loss + dist_mat_loss
 
         return noisy_batch, {
             "bb_atom_loss": bb_atom_loss,
             "trans_loss": trans_loss,
             "rots_loss": rots_loss,
             "se3_loss": se3_loss,
+            "dist_mat_loss": dist_mat_loss,
+            "full_dist_loss": full_dist_loss,
             "rots_vf_loss": rots_vf_loss,
             "se3_vf_loss": se3_vf_loss
         }
