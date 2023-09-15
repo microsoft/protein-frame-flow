@@ -224,6 +224,7 @@ class Sampler:
                 return_traj=True,
                 return_model_outputs=True,
                 num_timesteps=self._infer_cfg.num_timesteps,
+                do_sde=self._infer_cfg.do_sde,
             )
             traj_paths = self.save_traj(
                 np.flip(du.to_numpy(torch.concat(atom37_traj, dim=0)), axis=0),
