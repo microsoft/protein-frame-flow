@@ -1,0 +1,27 @@
+defaults:
+  - base
+  - _self_
+
+data:
+  sampler:
+    use_batch_repeats: False
+    max_batch_size: 100
+
+model:
+  architecture: flow
+  flow:
+    use_rot_updates: False
+    predict_rot_vf: True
+
+experiment:
+  debug: False
+  warm_start: ckpt/se3-fm/flow_model/2023-09-15_18-21-26/last.ckpt
+  training:
+    self_correcting: True
+    loss: se3_vf_loss
+    bb_atom_scale: 0.5
+  wandb:
+    name: flow_model_se3_vf
+    tags: ['experimental']
+  trainer:
+    accumulate_grad_batches: 2

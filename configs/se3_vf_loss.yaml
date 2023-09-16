@@ -1,0 +1,20 @@
+defaults:
+  - base
+  - _self_
+
+data:
+  sampler:
+    max_batch_size: 100
+
+model:
+  framediff:
+    use_rot_updates: False
+    predict_rot_vf: True
+
+experiment:
+  training:
+    loss: se3_vf_loss
+    bb_atom_scale: 0.5
+  wandb:
+    name: se3_vf_loss
+    tags: ['se3_vf']

@@ -5,7 +5,8 @@ defaults:
 experiment:
   num_devices: 2
   warm_start: ckpt/se3-fm/baseline_fixed/2023-09-13_08-12-53/last.ckpt
-  
+  training:
+    self_correcting: True
   wandb:
-    name: warm_start
+    name: warm_start_self_correcting
     tags: ['warm_start']

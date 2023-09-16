@@ -158,8 +158,11 @@ class PotentialNet(nn.Module):
 
     def forward(self, s, p, t, mask, p_mask):
         t = self.rigids_ang_to_nm(t)
+        num_batch, num_res = s.shape[:2]
+        diag_indices = torch.where(torch.eye(num_res)[None].repeat(num_batch, 1, 1))
         for b in range(self._cfg.num_blocks):
             p = self.trunk[f'edge_update_{b}'](s, p, t, p_mask)
+            s = p[diag_indices].reshape(num_batch, num_res, -1)
             s, t = self.trunk[f'bb_update_{b}'](s, p, t, mask)
         t = self.rigids_nm_to_ang(t)
         return s, t

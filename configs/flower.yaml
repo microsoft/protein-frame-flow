@@ -4,7 +4,9 @@ defaults:
 
 data:
   sampler:
-    max_batch_size: 64
+    max_batch_size: 32
+    use_batch_repeats: False
+    max_num_res_squared: 500_000
 
 model:
   architecture: flower
@@ -19,16 +21,14 @@ model:
       edge_update:
         symmetric_update: True
         single_bias: True
-        pair_transition_n: 1
-      structure_update:
-        seq_tfmr:
-          enable: True
 
 experiment:
   num_devices: 2
   debug: False
   trainer:
-    accumulate_grad_batches: 1
+    accumulate_grad_batches: 2
+  training:
+    self_correcting: True
   wandb:
     name: flower
     tags: ['experimental']

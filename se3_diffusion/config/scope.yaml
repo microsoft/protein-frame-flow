@@ -1,0 +1,38 @@
+# Default or base configuration for SE(3) diffusion experiments.
+
+defaults:
+  - base
+  - _self_
+
+data:
+  # CSV for path and metadata to training examples.
+  csv_path: /data/rsg/chemistry/jyim/projects/flow-matching/preprocessed/metadata.csv
+  filtering:
+    max_len: 128
+    min_len: 0
+    allowed_oligomer: null
+    max_helix_percent: null
+    max_loop_percent: null
+    min_beta_percent: null
+    rog_quantile: null
+  min_t: 0.01
+  samples_per_eval_length: 4
+  num_eval_lengths: 10
+  num_t: 100
+
+experiment:
+  # Experiment metadata
+  name: scope
+  run_id: null
+
+  #training mode
+  use_ddp : False
+
+  # Training arguments
+  log_freq: 1000
+  batch_size: 256
+  sample_mode: time_batch
+
+  # Wandb logging
+  wandb_dir: ./
+  use_wandb: True

@@ -3,8 +3,10 @@ from typing import Any
 import torch
 import time
 import os
+import random
 import wandb
 import numpy as np
+import copy
 import pandas as pd
 import tree
 import logging
@@ -12,6 +14,7 @@ from pytorch_lightning import LightningModule
 from models.vf_model import VFModel
 from models.genie_model import Genie
 from models.flower_model import Flower
+from models.flow_model import FlowModel
 from data import all_atom 
 from data import utils as du
 from analysis import utils as au
@@ -43,6 +46,9 @@ class FlowModule(LightningModule):
         elif model_cfg.architecture == 'flower':
             self._model_cfg = model_cfg.flower
             self.model = Flower(model_cfg.flower)
+        elif model_cfg.architecture == 'flow':
+            self._model_cfg = model_cfg.flow
+            self.model = FlowModel(model_cfg.flow)            
         else:
             raise NotImplementedError()
         self._sample_write_dir = self._exp_cfg.checkpointer.dirpath
@@ -155,22 +161,20 @@ class FlowModule(LightningModule):
             batch['rotmats_t'] = gt_rotmats_1
         return batch
 
-    def model_step(self, batch: Any):
+    def model_step(self, noisy_batch: Any):
         training_cfg = self._exp_cfg.training
         if training_cfg.superimpose not in ['all_atom', 'c_alpha', None]:
             raise ValueError(f'Unknown superimpose method {training_cfg.superimpose}')
-        gt_trans_1 = batch['trans_1']
-        gt_rotmats_1 = batch['rotmats_1']
-        res_mask = batch['res_mask']
+        gt_trans_1 = noisy_batch['trans_1']
+        gt_rotmats_1 = noisy_batch['rotmats_1']
+        res_mask = noisy_batch['res_mask']
         num_batch, num_res = res_mask.shape[:2]
         gt_bb_atoms = all_atom.to_atom37(gt_trans_1, gt_rotmats_1)[:, :, :3] 
         
-        noisy_batch = self._corrupt_batch(batch)
         model_output = self.model(noisy_batch)
         pred_trans_1 = model_output['pred_trans']
         pred_rotmats_1 = model_output['pred_rotmats']
         pred_rots_vf = model_output['pred_rots_vf']
-        pred_rotvecs_1 = so3_utils.rotmat_to_rotvec(gt_rotmats_1)
 
         gt_rotvecs_1 = so3_utils.rotmat_to_rotvec(gt_rotmats_1)
         gt_rot_vf = so3_utils.calc_rot_vf(
@@ -180,9 +184,9 @@ class FlowModule(LightningModule):
 
         pred_rotvecs_1 = so3_utils.rotmat_to_rotvec(pred_rotmats_1)
         pred_bb_atoms = all_atom.to_atom37(pred_trans_1, pred_rotmats_1)[:, :, :3]
+        gt_bb_atoms *= training_cfg.bb_atom_scale
+        pred_bb_atoms *= training_cfg.bb_atom_scale
 
-        gt_bb_atoms *= du.ANG_TO_NM_SCALE
-        pred_bb_atoms *= du.ANG_TO_NM_SCALE
         gt_trans_1 *= du.ANG_TO_NM_SCALE
         pred_trans_1 *= du.ANG_TO_NM_SCALE
         
@@ -304,14 +308,18 @@ class FlowModule(LightningModule):
             return_model_outputs=False,
             num_timesteps=None,
             do_sde=None,
+            debug_trans=False,
+            debug_rots=False,
         ):
         if do_sde is None:
-            do_sde = self._sampling_cfg.sampling.do_sde
+            do_sde = self._sampling_cfg.do_sde
 
         if not do_sde:
-            return self.run_ode_sampling(batch, return_traj, return_model_outputs, num_timesteps)
+            return self.run_ode_sampling(
+                batch, return_traj, return_model_outputs, num_timesteps, debug_trans=debug_trans, debug_rots=debug_rots)
         else:
-            return self.run_sde_sampling(batch, return_traj, return_model_outputs, num_timesteps)
+            return self.run_sde_sampling(
+                batch, return_traj, return_model_outputs, num_timesteps, debug_trans=debug_trans, debug_rots=debug_rots)
 
     @torch.no_grad()
     def run_ode_sampling(
@@ -320,6 +328,8 @@ class FlowModule(LightningModule):
         return_traj,
         return_model_outputs,
         num_timesteps,
+        debug_trans: bool = False,
+        debug_rots: bool = False,
         ):
 
         batch, _ = batch
@@ -344,11 +354,11 @@ class FlowModule(LightningModule):
             d_t = t_2 - t_1
             trans_t_1, rots_t_1 = prot_traj[-1]
             with torch.no_grad():
-                if self._exp_cfg.noise_trans:
+                if self._exp_cfg.noise_trans and not debug_trans:
                     batch['trans_t'] = trans_t_1
                 else:
                     batch['trans_t'] = batch['trans_1']
-                if self._exp_cfg.noise_rots:
+                if self._exp_cfg.noise_rots and not debug_rots:
                     batch['rotmats_t'] = rots_t_1
                 else:
                     batch['rotmats_t'] = batch['rotmats_1']
@@ -512,17 +522,33 @@ class FlowModule(LightningModule):
             return atom37_traj, model_traj
         return atom37_traj
 
-
-
     def _log_scalar(self, key, value, on_step=True, on_epoch=False, prog_bar=True, batch_size=None, sync_dist=False, rank_zero_only=True):
         if sync_dist and rank_zero_only:
             raise ValueError('Unable to sync dist when rank_zero_only=True')
         self.log(
             key, value, on_step=on_step, on_epoch=on_epoch, prog_bar=prog_bar, batch_size=batch_size, sync_dist=sync_dist, rank_zero_only=rank_zero_only)
 
+    def _self_correct(self, noisy_batch):
+        tmp_batch = copy.deepcopy(noisy_batch)
+        with torch.no_grad():
+            model_output = self.model(tmp_batch)
+        tmp_batch['trans_1'] = model_output['pred_trans']
+        tmp_batch['rotmats_1'] = model_output['pred_rotmats']
+        correcting_batch = self._corrupt_batch(tmp_batch)
+        noisy_batch['trans_t'] = correcting_batch['trans_t']
+        noisy_batch['rotmats_t'] = correcting_batch['rotmats_t']
+        noisy_batch['t'] = correcting_batch['t']
+        return noisy_batch
+
     def training_step(self, batch: Any, stage: int):
         step_start_time = time.time()
-        _, batch_losses = self.model_step(batch)
+        noisy_batch = self._corrupt_batch(batch)
+        self_correct = False
+        if self._exp_cfg.training.self_correcting and random.random() < 0.5:
+            self_correct = True
+            noisy_batch = self._self_correct(noisy_batch)
+        self._log_scalar('train/self_correct', int(self_correct), prog_bar=False)
+        _, batch_losses = self.model_step(noisy_batch)
         num_batch = batch_losses['bb_atom_loss'].shape[0]
         total_losses = {
             k: torch.mean(v) for k,v in batch_losses.items()

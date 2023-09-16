@@ -35,7 +35,7 @@ model:
       single_bias_transition_n: 2
       c_s: ${model.flower.node_embed_size}
       c_p: ${model.flower.edge_embed_size}
-      relpos_k: 32
+      relpos_k: 64
       use_rbf: False
       num_rbf: 32
       symmetric: ${model.flower.symmetric}
@@ -50,7 +50,7 @@ model:
         num_rbf: 32
         c_hidden_mul: 128
         dropout: ${model.flower.potential_network.dropout}
-        single_bias: False
+        single_bias: True
         pair_transition_n: 2
       structure_update:
         use_rot_updates: True
@@ -68,6 +68,37 @@ model:
           no_qk_points: 4
           no_v_points: 8
     predict_rot_vf: False
+
+  flow:
+    use_rot_updates: True
+    predict_rot_vf: False
+    node_embed_size: 256
+    edge_embed_size: 128
+    symmetric: True
+    node_features:
+      c_s: ${model.flow.node_embed_size}
+      c_pos_emb: 128
+      c_timestep_emb: 128
+      max_num_res: 2000
+      timestep_int: 1000
+    edge_features:
+      single_bias_transition_n: 2
+      c_s: ${model.flow.node_embed_size}
+      c_p: ${model.flow.edge_embed_size}
+      relpos_k: 64
+      use_rbf: True
+      num_rbf: 32
+      symmetric: ${model.flow.symmetric}
+    ipa:
+      c_s: ${model.flow.node_embed_size}
+      c_z: ${model.flow.edge_embed_size}
+      c_hidden: 128
+      no_heads: 8
+      no_qk_points: 8
+      no_v_points: 12
+      seq_tfmr_num_heads: 4
+      seq_tfmr_num_layers: 2
+      num_blocks: 6
 
   # GENIE architecture
   genie:
@@ -140,12 +171,14 @@ experiment:
     noise_per_sample: 1
     permute: False
   training:
+    self_correcting: True
     loss: bb_atom_loss
+    bb_atom_scale: 0.1
     superimpose: null
     rotation_loss_weights: 1.0
     t_sampler: uniform
   wandb:
-    name: baseline
+    name: self_correcting
     project: se3-fm
     save_code: True
     tags: ['baseline']
