@@ -12,38 +12,17 @@ import pandas as pd
 import logging
 import random
 import functools as fn
+from scipy.spatial.transform import Rotation
 
 from torch.utils import data
 from data import utils as du
+from data import flow_so3_utils
+from data import so3_utils
+from data import se3_diffuser
 from openfold.data import data_transforms
 from openfold.np import residue_constants
 from openfold.utils import rigid_utils
 
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn.linear_model import LinearRegression
-
-
-def _rog_quantile_curve(df, quantile, eval_x):
-    y_quant = pd.pivot_table(
-        df,
-        values='radius_gyration', 
-        index='modeled_seq_len',
-        aggfunc=lambda x: np.quantile(x, quantile)
-    )
-    x_quant = y_quant.index.to_numpy()
-    y_quant = y_quant.radius_gyration.to_numpy()
-
-    # Fit polynomial regressor
-    poly = PolynomialFeatures(degree=4, include_bias=True)
-    poly_features = poly.fit_transform(x_quant[:, None])
-    poly_reg_model = LinearRegression()
-    poly_reg_model.fit(poly_features, y_quant)
-
-    # Calculate cutoff for all sequence lengths
-    pred_poly_features = poly.fit_transform(eval_x[:, None])
-    # Add a little more.
-    pred_y = poly_reg_model.predict(pred_poly_features) + 0.1
-    return pred_y
 
 class PdbDataset(data.Dataset):
     def __init__(
@@ -94,15 +73,6 @@ class PdbDataset(data.Dataset):
         if filter_conf.min_beta_percent is not None:
             pdb_csv = pdb_csv[
                 pdb_csv.strand_percent > filter_conf.min_beta_percent]
-        if filter_conf.rog_quantile is not None \
-            and filter_conf.rog_quantile > 0.0:
-            prot_rog_low_pass = _rog_quantile_curve(
-                pdb_csv, 
-                filter_conf.rog_quantile,
-                np.arange(filter_conf.max_len))
-            row_rog_cutoffs = pdb_csv.modeled_seq_len.map(
-                lambda x: prot_rog_low_pass[x-1])
-            pdb_csv = pdb_csv[pdb_csv.radius_gyration < row_rog_cutoffs]
         if filter_conf.subset is not None:
             pdb_csv = pdb_csv[:filter_conf.subset]
         pdb_csv = pdb_csv.sort_values('modeled_seq_len', ascending=False)
@@ -128,8 +98,7 @@ class PdbDataset(data.Dataset):
             self.csv = eval_csv
             self._log.info(
                 f'Validation: {len(self.csv)} examples with lengths {eval_lengths}')
-    # cache make the same sample in same batch 
-    @fn.lru_cache(maxsize=100)
+
     def _process_csv_row(self, processed_file_path):
         processed_feats = du.read_pkl(processed_file_path)
         processed_feats = du.parse_chain_feats(processed_feats)
@@ -246,7 +215,6 @@ class PdbDataset(data.Dataset):
         chain_feats['fixed_mask'] = fixed_mask
         chain_feats['rigids_0'] = gt_bb_rigid.to_tensor_7()
         chain_feats['sc_ca_t'] = torch.zeros_like(gt_bb_rigid.get_trans())
-
         # Sample t and diffuse.
         if self.is_training:
             t = rng.uniform(self._data_conf.min_t, 1.0)
@@ -255,6 +223,24 @@ class PdbDataset(data.Dataset):
                 t=t,
                 diffuse_mask=None
             )
+
+            # Flow
+            if self.data_conf.flow_so3:
+                trans_1 = gt_bb_rigid.get_trans()
+                rotmats_1 = torch.tensor(gt_bb_rigid.get_rots().get_rot_mats(), dtype=float)
+
+                num_res = trans_1.shape[0]
+                # trans_0 = torch.randn(trans_1.shape)
+                # noise = torch.randn(*shape, device=device)
+                rotmats_0 = torch.tensor(Rotation.random(num_res).as_matrix(), dtype=float)
+                rotmats_t = flow_so3_utils.geodesic_t(1 - t, rotmats_1, rotmats_0)
+                rotvecs_t = flow_so3_utils.rotmat_to_rotvec(rotmats_t)
+                rots_vf = flow_so3_utils.calc_rot_vf(rotmats_t, rotmats_1)
+
+                trans_t = diff_feats_t['trans_t']
+                rigids_t = se3_diffuser._assemble_rigid(rotvecs_t, trans_t)
+                diff_feats_t['rigids_t'] = rigids_t.to_tensor_7()
+                diff_feats_t['rots_vf'] = rots_vf 
         else:
             t = 1.0
             diff_feats_t = self.diffuser.sample_ref(

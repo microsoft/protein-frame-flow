@@ -44,8 +44,10 @@ from data import pdb_data_loader
 from data import se3_diffuser
 from data import utils as du
 from data import all_atom
+from data import flow_so3_utils
 from model import score_network
 from experiments import utils as eu
+from openfold.utils.rigid_utils import Rigid
 
 
 class Experiment:
@@ -543,12 +545,14 @@ class Experiment:
 
         gt_rot_score = batch['rot_score']
         gt_trans_score = batch['trans_score']
+        gt_rot_vf = batch['rots_vf']
         rot_score_scaling = batch['rot_score_scaling']
         trans_score_scaling = batch['trans_score_scaling']
         batch_loss_mask = torch.any(bb_mask, dim=-1)
 
         pred_rot_score = model_out['rot_score'] * diffuse_mask[..., None]
         pred_trans_score = model_out['trans_score'] * diffuse_mask[..., None]
+        pred_rot_vf = model_out['rot_vf'] * diffuse_mask[..., None]
 
         # Translation score loss
         trans_score_mse = (gt_trans_score - pred_trans_score)**2 * loss_mask[..., None]
@@ -573,7 +577,7 @@ class Experiment:
         trans_loss *= int(self._diff_conf.diffuse_trans)
 
         # Rotation loss
-        if self._exp_conf.separate_rot_loss:
+        if self._exp_conf.rot_loss == 'separate_score':
             gt_rot_angle = torch.norm(gt_rot_score, dim=-1, keepdim=True)
             gt_rot_axis = gt_rot_score / (gt_rot_angle + 1e-6)
 
@@ -595,7 +599,7 @@ class Experiment:
             angle_loss *= self._exp_conf.rot_loss_weight
             angle_loss *= batch['t'] > self._exp_conf.rot_loss_t_threshold
             rot_loss = angle_loss + axis_loss
-        else:
+        elif self._exp_conf.rot_loss == 'score':
             rot_mse = (gt_rot_score - pred_rot_score)**2 * loss_mask[..., None]
             rot_loss = torch.sum(
                 rot_mse / rot_score_scaling[:, None, None]**2,
@@ -603,6 +607,15 @@ class Experiment:
             ) / (loss_mask.sum(dim=-1) + 1e-10)
             rot_loss *= self._exp_conf.rot_loss_weight
             rot_loss *= batch['t'] > self._exp_conf.rot_loss_t_threshold
+        elif self._exp_conf.rot_loss == 'vf':
+            rot_mse = (gt_rot_vf - pred_rot_vf)**2 * loss_mask[..., None]
+            rot_loss = torch.sum(
+                rot_mse, dim=(-1, -2)
+            ) / (loss_mask.sum(dim=-1) + 1e-10)
+            rot_loss *= self._exp_conf.rot_loss_weight
+            rot_loss *= batch['t'] > self._exp_conf.rot_loss_t_threshold
+        else:
+            raise NotImplementedError()
         rot_loss *= int(self._diff_conf.diffuse_rot)
 
 
@@ -765,6 +778,7 @@ class Experiment:
                         sample_feats['sc_ca_t'] = rigid_pred[..., 4:]
                     fixed_mask = sample_feats['fixed_mask'] * sample_feats['res_mask']
                     diffuse_mask = (1 - sample_feats['fixed_mask']) * sample_feats['res_mask']
+
                     rigids_t = self.diffuser.reverse(
                         rigid_t=ru.Rigid.from_tensor_7(sample_feats['rigids_t']),
                         rot_score=du.move_to_np(rot_score),
@@ -775,6 +789,16 @@ class Experiment:
                         center=center,
                         noise_scale=noise_scale,
                     )
+
+                    # Flow matching
+                    if self._data_conf.flow_so3:
+                        prev_rigids_t = sample_feats['rigids_t']
+                        prev_rots_t = Rigid.from_tensor_7(prev_rigids_t).get_rots().get_rot_mats()
+                        rots_pred = Rigid.from_tensor_7(model_out['rigids']).get_rots().get_rot_mats()
+                        rots_t = flow_so3_utils.geodesic_t(
+                            dt / t, rots_pred, prev_rots_t, rot_vf=model_out['rot_vf'])
+                        trans_t = rigids_t.get_trans()
+                        rigids_t = ru.Rigid(rots=ru.Rotation(rot_mats=rots_t.to(trans_t.device)), trans=trans_t)
                 else:
                     model_out = self.model(sample_feats)
                     rigids_t = ru.Rigid.from_tensor_7(model_out['rigids'])

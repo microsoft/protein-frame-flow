@@ -21,6 +21,7 @@ data:
   samples_per_eval_length: 4
   num_eval_lengths: 10
   num_t: 100
+  flow_so3: False
 
 diffuser:
   diffuse_trans: True
@@ -41,6 +42,11 @@ diffuser:
     schedule: logarithmic
     cache_dir: .cache/
     use_cached_score: False
+
+flower:
+  flow_tran: True
+  flow_rot: True
+
 
 model:
   node_embed_size: 256
@@ -105,7 +111,7 @@ experiment:
   trans_loss_weight: 1.0
   rot_loss_weight: 0.5
   rot_loss_t_threshold: 0.2
-  separate_rot_loss: True
+  rot_loss: separate_score
   trans_x0_threshold: 1.0
   coordinate_scaling: ${diffuser.r3.coordinate_scaling}
   bb_atom_loss_weight: 1.0

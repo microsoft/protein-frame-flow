@@ -102,6 +102,7 @@ class SE3Diffuser:
         if as_tensor_7:
             rigids_t = rigids_t.to_tensor_7()
         return {
+            'trans_t': trans_t,
             'rigids_t': rigids_t,
             'trans_score': trans_score,
             'rot_score': rot_score,

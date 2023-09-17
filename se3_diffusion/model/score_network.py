@@ -206,6 +206,7 @@ class ScoreNetwork(nn.Module):
             'psi': psi_pred,
             'rot_score': model_out['rot_score'],
             'trans_score': model_out['trans_score'],
+            'rot_vf': model_out['rot_vf'],
         }
         rigids_pred = model_out['final_rigids']
         pred_out['rigids'] = rigids_pred.to_tensor_7()

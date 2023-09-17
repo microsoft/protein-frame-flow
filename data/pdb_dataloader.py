@@ -114,8 +114,6 @@ class PdbDataset(Dataset):
             self._log.info(
                 f'Validation: {len(self.csv)} examples with lengths {eval_lengths}')
 
-    # cache make the same sample in same batch 
-    # @fn.lru_cache(maxsize=10000)
     def _process_csv_row(self, processed_file_path):
         processed_feats = du.read_pkl(processed_file_path)
         processed_feats = du.parse_chain_feats(processed_feats)

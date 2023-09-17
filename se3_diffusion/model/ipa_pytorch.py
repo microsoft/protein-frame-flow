@@ -8,6 +8,7 @@ import torch.nn as nn
 from typing import Optional, Callable, List, Sequence
 from openfold.utils.rigid_utils import Rigid
 from data import all_atom
+from data import flow_so3_utils
 
 
 def permute_final_dims(tensor: torch.Tensor, inds: List[int]):
@@ -647,12 +648,16 @@ class IpaScore(nn.Module):
                 edge_embed = self.trunk[f'edge_transition_{b}'](
                     node_embed, edge_embed)
                 edge_embed *= edge_mask[..., None]
+        rots_t = init_rigids.get_rots()
+        pred_rots_1 = curr_rigids.get_rots()
         rot_score = self.diffuser.calc_rot_score(
-            init_rigids.get_rots(),
-            curr_rigids.get_rots(),
+            rots_t,
+            pred_rots_1,
             input_feats['t']
-        )
-        rot_score = rot_score * node_mask[..., None]
+        ) * node_mask[..., None]
+
+        rot_vf = flow_so3_utils.calc_rot_vf(
+            rots_t.get_rot_mats(), pred_rots_1.get_rot_mats()) * node_mask[..., None]
 
         curr_rigids = self.unscale_rigids(curr_rigids)
         trans_score = self.diffuser.calc_trans_score(
@@ -668,5 +673,6 @@ class IpaScore(nn.Module):
             'rot_score': rot_score,
             'trans_score': trans_score,
             'final_rigids': curr_rigids,
+            'rot_vf': rot_vf
         }
         return model_out
