@@ -14,7 +14,8 @@ model:
 experiment:
   training:
     loss: se3_vf_loss
-    bb_atom_scale: 0.5
+
+  num_devices: 2
   wandb:
     name: se3_vf_loss
     tags: ['se3_vf']

@@ -12,8 +12,8 @@ data:
     num_workers: 4
     prefetch_factor: 10
   sampler:
-    max_batch_size: 128
-    max_num_res_squared: 1_000_000
+    max_batch_size: 100
+    max_num_res_squared: 800_000
     use_batch_repeats: True
     num_batches: null
 
@@ -163,22 +163,22 @@ experiment:
   warm_start_cfg_override: True
   noise_trans: True
   noise_rots: True
+  rescale_time: True
   use_swa: False
-  trans_schedule: linear
   batch_ot:
     enabled: True
     cost: kabsch
     noise_per_sample: 1
     permute: False
   training:
-    self_correcting: True
-    loss: bb_atom_loss
+    self_correcting: False
+    loss: se3_loss #bb_atom_loss
     bb_atom_scale: 0.1
     superimpose: null
     rotation_loss_weights: 1.0
     t_sampler: uniform
   wandb:
-    name: self_correcting
+    name: baseline
     project: se3-fm
     save_code: True
     tags: ['baseline']

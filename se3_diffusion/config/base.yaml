@@ -21,7 +21,7 @@ data:
   samples_per_eval_length: 4
   num_eval_lengths: 10
   num_t: 100
-  flow_so3: False
+  flow_se3: False
 
 diffuser:
   diffuse_trans: True
@@ -112,7 +112,6 @@ experiment:
   rot_loss_weight: 0.5
   rot_loss_t_threshold: 0.2
   rot_loss: separate_score
-  trans_x0_threshold: 1.0
   coordinate_scaling: ${diffuser.r3.coordinate_scaling}
   bb_atom_loss_weight: 1.0
   bb_atom_loss_t_filter: 0.25

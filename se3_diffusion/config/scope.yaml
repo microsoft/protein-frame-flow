@@ -19,11 +19,11 @@ data:
   samples_per_eval_length: 4
   num_eval_lengths: 10
   num_t: 100
-  flow_so3: True
+  flow_se3: True
 
 experiment:
   # Experiment metadata
-  name: scope
+  name: scope_se3_flow_log_schedule
   run_id: null
 
   #training mode
@@ -35,6 +35,7 @@ experiment:
   sample_mode: time_batch
   rot_loss: vf
   rot_loss_weight: 0.5
+  rot_loss_t_threshold: 0.0
 
   # warm_start: ./ckpt/scope/16D_09M_2023Y_13h_50m_22s
 

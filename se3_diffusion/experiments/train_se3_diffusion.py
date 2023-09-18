@@ -45,6 +45,7 @@ from data import se3_diffuser
 from data import utils as du
 from data import all_atom
 from data import flow_so3_utils
+from data import r3_flow_utils
 from model import score_network
 from experiments import utils as eu
 from openfold.utils.rigid_utils import Rigid
@@ -544,35 +545,27 @@ class Experiment:
         batch_size, num_res = bb_mask.shape
 
         gt_rot_score = batch['rot_score']
-        gt_trans_score = batch['trans_score']
-        gt_rot_vf = batch['rots_vf']
+        gt_rigids = Rigid.from_tensor_7(batch['rigids_0'])
+        gt_trans = gt_rigids.get_trans()
+        gt_rotmats = gt_rigids.get_rots().get_rot_mats()
+        gt_rotvecs = flow_so3_utils.rotmat_to_rotvec(gt_rotmats)
+        
         rot_score_scaling = batch['rot_score_scaling']
-        trans_score_scaling = batch['trans_score_scaling']
         batch_loss_mask = torch.any(bb_mask, dim=-1)
 
         pred_rot_score = model_out['rot_score'] * diffuse_mask[..., None]
-        pred_trans_score = model_out['trans_score'] * diffuse_mask[..., None]
-        pred_rot_vf = model_out['rot_vf'] * diffuse_mask[..., None]
-
-        # Translation score loss
-        trans_score_mse = (gt_trans_score - pred_trans_score)**2 * loss_mask[..., None]
-        trans_score_loss = torch.sum(
-            trans_score_mse / trans_score_scaling[:, None, None]**2,
-            dim=(-1, -2)
-        ) / (loss_mask.sum(dim=-1) + 1e-10)
+        pred_rigids = Rigid.from_tensor_7(model_out['rigids'])
+        pred_trans = pred_rigids.get_trans()
+        pred_rotmats = pred_rigids.get_rots().get_rot_mats()
+        pred_rotvecs = flow_so3_utils.rotmat_to_rotvec(pred_rotmats)
 
         # Translation x0 loss
-        gt_trans_x0 = batch['rigids_0'][..., 4:] * self._exp_conf.coordinate_scaling
-        pred_trans_x0 = model_out['rigids'][..., 4:] * self._exp_conf.coordinate_scaling
-        trans_x0_loss = torch.sum(
+        gt_trans_x0 = gt_trans * self._exp_conf.coordinate_scaling
+        pred_trans_x0 = pred_trans * self._exp_conf.coordinate_scaling
+        trans_loss = torch.sum(
             (gt_trans_x0 - pred_trans_x0)**2 * loss_mask[..., None],
             dim=(-1, -2)
         ) / (loss_mask.sum(dim=-1) + 1e-10)
-
-        trans_loss = (
-            trans_score_loss * (batch['t'] > self._exp_conf.trans_x0_threshold)
-            + trans_x0_loss * (batch['t'] <= self._exp_conf.trans_x0_threshold)
-        )
         trans_loss *= self._exp_conf.trans_loss_weight
         trans_loss *= int(self._diff_conf.diffuse_trans)
 
@@ -608,7 +601,7 @@ class Experiment:
             rot_loss *= self._exp_conf.rot_loss_weight
             rot_loss *= batch['t'] > self._exp_conf.rot_loss_t_threshold
         elif self._exp_conf.rot_loss == 'vf':
-            rot_mse = (gt_rot_vf - pred_rot_vf)**2 * loss_mask[..., None]
+            rot_mse = (gt_rotvecs - pred_rotvecs)**2 * loss_mask[..., None]
             rot_loss = torch.sum(
                 rot_mse, dim=(-1, -2)
             ) / (loss_mask.sum(dim=-1) + 1e-10)
@@ -617,7 +610,6 @@ class Experiment:
         else:
             raise NotImplementedError()
         rot_loss *= int(self._diff_conf.diffuse_rot)
-
 
         # Backbone atom loss
         pred_atom37 = model_out['atom37'][:, :, :5]
@@ -765,9 +757,10 @@ class Experiment:
         with torch.no_grad():
             if self._model_conf.embed.embed_self_conditioning and self_condition:
                 sample_feats = self._set_t_feats(
-                    sample_feats, reverse_steps[0], t_placeholder)
+                    sample_feats, reverse_steps[1], t_placeholder)
                 sample_feats = self._self_conditioning(sample_feats)
-            for t in reverse_steps:
+            prev_t = reverse_steps[0]
+            for t in reverse_steps[1:]:
                 if t > min_t:
                     sample_feats = self._set_t_feats(sample_feats, t, t_placeholder)
                     model_out = self.model(sample_feats)
@@ -791,14 +784,26 @@ class Experiment:
                     )
 
                     # Flow matching
-                    if self._data_conf.flow_so3:
-                        prev_rigids_t = sample_feats['rigids_t']
-                        prev_rots_t = Rigid.from_tensor_7(prev_rigids_t).get_rots().get_rot_mats()
-                        rots_pred = Rigid.from_tensor_7(model_out['rigids']).get_rots().get_rot_mats()
+                    if self._data_conf.flow_se3:
+                        prev_rigids_t = Rigid.from_tensor_7(sample_feats['rigids_t'])
+                        prev_rots_t = prev_rigids_t.get_rots().get_rot_mats()
+                        prev_trans_t = prev_rigids_t.get_trans()
+
+                        pred_rigids = Rigid.from_tensor_7(model_out['rigids'])
+                        rots_pred = pred_rigids.get_rots().get_rot_mats()
+                        trans_pred = pred_rigids.get_trans()
+
+                        sigma_t = r3_flow_utils.sigma_t(t)
+                        prev_sigma_t = r3_flow_utils.sigma_t(prev_t)
+                        dt = prev_sigma_t - sigma_t
+                        prev_t = t
+                        trans_vf = (trans_pred - prev_trans_t) / sigma_t
+                        trans_t = prev_trans_t + trans_vf * dt
                         rots_t = flow_so3_utils.geodesic_t(
-                            dt / t, rots_pred, prev_rots_t, rot_vf=model_out['rot_vf'])
-                        trans_t = rigids_t.get_trans()
-                        rigids_t = ru.Rigid(rots=ru.Rotation(rot_mats=rots_t.to(trans_t.device)), trans=trans_t)
+                            dt / sigma_t, rots_pred, prev_rots_t)
+
+                        rigids_t = ru.Rigid(
+                            rots=ru.Rotation(rot_mats=rots_t.to(trans_t.device)), trans=trans_t)
                 else:
                     model_out = self.model(sample_feats)
                     rigids_t = ru.Rigid.from_tensor_7(model_out['rigids'])
