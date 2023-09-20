@@ -5,17 +5,26 @@ defaults:
 data:
   sampler:
     max_batch_size: 100
+    use_batch_repeats: False
 
 model:
   framediff:
-    use_rot_updates: False
-    predict_rot_vf: True
+    use_rot_updates: True
+    predict_rot_vf: False
 
 experiment:
+  debug: False
   training:
     loss: se3_vf_loss
-
+    rotation_loss_weights: 0.5
   num_devices: 2
+
+  warm_start: ./ckpt/se3-fm/se3_vf_loss_denvo/2023-09-20_05-44-13/last.ckpt
+  # warm_start: ./ckpt/se3-fm/se3_vf_loss_rescaled_v2_repeat_batching/2023-09-19_20-56-30/last.ckpt
+  # warm_start: ./ckpt/se3-fm/full_rot_loss/2023-09-19_21-39-55/last.ckpt
+  # warm_start: ./ckpt/se3-fm/se3_vf_loss_denvo/2023-09-19_21-43-54/last.ckpt
   wandb:
-    name: se3_vf_loss
+    name: se3_vf_loss_denovo
     tags: ['se3_vf']
+  trainer:
+    accumulate_grad_batches: 4

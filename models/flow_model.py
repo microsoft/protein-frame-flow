@@ -53,12 +53,9 @@ class FlowModel(nn.Module):
                     edge_embed_in=edge_in,
                     edge_embed_out=self._model_conf.edge_embed_size,
                 )
-
-    def _cross_concat(self, feats_1d, num_batch, num_res):
-        return torch.cat([
-            torch.tile(feats_1d[:, :, None, :], (1, 1, num_res, 1)),
-            torch.tile(feats_1d[:, None, :, :], (1, num_res, 1, 1)),
-        ], dim=-1).float().reshape([num_batch, num_res**2, -1])
+        if self._model_conf.predict_rot_vf:
+            self._rot_vf_head = ipa_pytorch.BackboneUpdate(
+                self._model_conf.node_embed_size, False)
 
     def forward(self, input_feats):
         node_mask = input_feats['res_mask']
@@ -111,15 +108,15 @@ class FlowModel(nn.Module):
 
         curr_rigids = self.rigids_nm_to_ang(curr_rigids)
         pred_trans = curr_rigids.get_trans()
-        pred_rots = curr_rigids.get_rots().get_rot_mats()
+        pred_rots = curr_rigids.get_rots()
         if self._model_conf.predict_rot_vf:
             rots_vf = self._rot_vf_head(node_embed)
         else:
-            rots_vf = so3_utils.calc_rot_vf(rotmats_t, pred_rots)
+            rots_vf = so3_utils.calc_rot_vf(rotmats_t, pred_rots.get_rot_mats())
         rots_vf *= node_mask[..., None]
 
         return {
             'pred_trans': pred_trans,
-            'pred_rotmats': pred_rots,
+            'pred_rots': pred_rots,
             'pred_rots_vf': rots_vf,
         }

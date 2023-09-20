@@ -14,7 +14,7 @@ data:
   sampler:
     max_batch_size: 100
     max_num_res_squared: 800_000
-    use_batch_repeats: True
+    use_batch_repeats: False
     num_batches: null
 
 model:
@@ -79,6 +79,7 @@ model:
       c_s: ${model.flow.node_embed_size}
       c_pos_emb: 128
       c_timestep_emb: 128
+      embed_t: True
       max_num_res: 2000
       timestep_int: 1000
     edge_features:
@@ -98,7 +99,7 @@ model:
       no_v_points: 12
       seq_tfmr_num_heads: 4
       seq_tfmr_num_layers: 2
-      num_blocks: 6
+      num_blocks: 4
 
   # GENIE architecture
   genie:
@@ -140,8 +141,8 @@ model:
     node_embed_size: 256
     edge_embed_size: 128
     dropout: 0.0
-    use_rot_updates: True
-    predict_rot_vf: False
+    use_rot_updates: False
+    predict_rot_vf: True
     ipa:
       c_s: ${model.framediff.node_embed_size}
       c_z: ${model.framediff.edge_embed_size}
@@ -163,8 +164,9 @@ experiment:
   warm_start_cfg_override: True
   noise_trans: True
   noise_rots: True
-  rescale_time: True
+  rescale_time: False
   use_swa: False
+  min_sigma: 1e-2
   batch_ot:
     enabled: True
     cost: kabsch
@@ -172,11 +174,11 @@ experiment:
     permute: False
   training:
     self_correcting: False
-    loss: se3_loss #bb_atom_loss
+    loss: se3_vf_loss
     bb_atom_scale: 0.1
+    trans_scale: 0.1
     superimpose: null
-    rotation_loss_weights: 1.0
-    t_sampler: uniform
+    rotation_loss_weights: 0.5
   wandb:
     name: baseline
     project: se3-fm
@@ -193,7 +195,7 @@ experiment:
     check_val_every_n_epoch: 1
     deterministic: False
     strategy: ddp
-    accumulate_grad_batches: 1
+    accumulate_grad_batches: 2
     num_sanity_val_steps: -1
   sampling:
     num_timesteps: 100

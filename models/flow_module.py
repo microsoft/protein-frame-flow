@@ -118,6 +118,7 @@ class FlowModule(LightningModule):
         return noise - torch.mean(noise, dim=-2, keepdims=True)
     
     def _corrupt_batch(self, batch, t=None):
+        noisy_batch = copy.deepcopy(batch)
         gt_trans_1 = batch['trans_1']  # Angstrom
         gt_rotmats_1 = batch['rotmats_1']
         res_mask = batch['res_mask']
@@ -125,21 +126,20 @@ class FlowModule(LightningModule):
         num_batch, num_res, _ = gt_trans_1.shape
         if t is None:
             t = torch.rand(num_batch, 1, 1, device=device)
-        if self._exp_cfg.rescale_time:
-            t = flow_utils.reschedule(t)
-        batch['t'] = t[:, 0]
+        noisy_batch['t'] = t[:, 0]
 
         if self._exp_cfg.batch_ot.enabled:
             trans_nm_0 = self._batch_ot(gt_trans_1, res_mask)
         else:
             trans_nm_0 = self._centered_gaussian(gt_trans_1.shape, device)
+        noisy_batch['trans_0'] = trans_nm_0 * du.NM_TO_ANG_SCALE
 
         if self._exp_cfg.noise_trans:
             trans_nm_t = (1 - t) * trans_nm_0 + t * gt_trans_1 * du.ANG_TO_NM_SCALE
             trans_nm_t *= res_mask[..., None]
-            batch['trans_t'] = trans_nm_t * du.NM_TO_ANG_SCALE
+            noisy_batch['trans_t'] = trans_nm_t * du.NM_TO_ANG_SCALE
         else:
-            batch['trans_t'] = gt_trans_1
+            noisy_batch['trans_t'] = gt_trans_1
 
         if self._exp_cfg.noise_rots:
             rotmats_0 = torch.tensor(
@@ -148,15 +148,16 @@ class FlowModule(LightningModule):
                 dtype=torch.float32
             )
             rotmats_0 = rotmats_0.reshape(num_batch, num_res, 3, 3)
+            noisy_batch['rotmats_0'] = rotmats_0
             rotmats_t = so3_utils.geodesic_t(t, gt_rotmats_1, rotmats_0)
             rotmats_t = (
                 rotmats_t * res_mask[..., None, None]
                 + torch.eye(3, device=device)[None, None] * (1 - res_mask[..., None, None])
             )
-            batch['rotmats_t'] = rotmats_t
+            noisy_batch['rotmats_t'] = rotmats_t
         else:
-            batch['rotmats_t'] = gt_rotmats_1
-        return batch
+            noisy_batch['rotmats_t'] = gt_rotmats_1
+        return noisy_batch
 
     def model_step(self, noisy_batch: Any):
         training_cfg = self._exp_cfg.training
@@ -185,9 +186,6 @@ class FlowModule(LightningModule):
         gt_bb_atoms *= training_cfg.bb_atom_scale
         pred_bb_atoms *= training_cfg.bb_atom_scale
 
-        gt_trans_1 *= du.ANG_TO_NM_SCALE
-        pred_trans_1 *= du.ANG_TO_NM_SCALE
-        
         loss_denom = torch.sum(res_mask, dim=-1) * 3
 
         bb_atom_loss = torch.sum(
@@ -195,8 +193,13 @@ class FlowModule(LightningModule):
             dim=(-1, -2, -3)
         ) / loss_denom
 
+        t_norm_scale = 1 - (1 - self._exp_cfg.min_sigma)*noisy_batch['t'][..., None]
+        gt_trans = gt_trans_1 * training_cfg.trans_scale
+        gt_trans /= t_norm_scale 
+        pred_trans = pred_trans_1 * training_cfg.trans_scale
+        pred_trans /= t_norm_scale
         trans_loss = torch.sum(
-            (gt_trans_1 - pred_trans_1) ** 2 * res_mask[..., None],
+            (gt_trans - pred_trans) ** 2 * res_mask[..., None],
             dim=(-1, -2)
         ) / loss_denom
         
@@ -205,8 +208,9 @@ class FlowModule(LightningModule):
             dim=(-1, -2)
         ) / loss_denom
 
+        rots_vf_error = (gt_rot_vf - pred_rots_vf) / t_norm_scale
         rots_vf_loss = training_cfg.rotation_loss_weights * torch.sum(
-            (gt_rot_vf - pred_rots_vf) ** 2 * res_mask[..., None],
+            rots_vf_error ** 2 * res_mask[..., None],
             dim=(-1, -2)
         ) / loss_denom
 
@@ -271,9 +275,12 @@ class FlowModule(LightningModule):
                 self.validation_epoch_samples.append(
                     [saved_path, self.global_step, wandb.Molecule(saved_path)]
                 )
-            mdtraj_metrics = metrics.calc_mdtraj_metrics(saved_path)
-            ca_ca_metrics = metrics.calc_ca_ca_metrics(final_pos[:, CA_IDX])
-            batch_metrics.append((mdtraj_metrics | ca_ca_metrics))
+            try:
+                mdtraj_metrics = metrics.calc_mdtraj_metrics(saved_path)
+                ca_ca_metrics = metrics.calc_ca_ca_metrics(final_pos[:, CA_IDX])
+                batch_metrics.append((mdtraj_metrics | ca_ca_metrics))
+            except Exception:
+                continue
 
         batch_metrics = pd.DataFrame(batch_metrics)
         self.validation_epoch_metrics.append(batch_metrics)
@@ -306,18 +313,16 @@ class FlowModule(LightningModule):
             return_model_outputs=False,
             num_timesteps=None,
             do_sde=None,
-            debug_trans=False,
-            debug_rots=False,
         ):
         if do_sde is None:
             do_sde = self._sampling_cfg.do_sde
 
         if not do_sde:
             return self.run_ode_sampling(
-                batch, return_traj, return_model_outputs, num_timesteps, debug_trans=debug_trans, debug_rots=debug_rots)
+                batch, return_traj, return_model_outputs, num_timesteps)
         else:
             return self.run_sde_sampling(
-                batch, return_traj, return_model_outputs, num_timesteps, debug_trans=debug_trans, debug_rots=debug_rots)
+                batch, return_traj, return_model_outputs, num_timesteps)
 
     @torch.no_grad()
     def run_ode_sampling(
@@ -414,8 +419,6 @@ class FlowModule(LightningModule):
             device=device,
             dtype=torch.float32,
         ).view(num_batch, num_res, 3, 3)
-        if rots_0.ndim == 3:
-            rots_0 = rots_0[None]
 
         prot_traj = [(trans_0, rots_0)]
         if num_timesteps is None:
@@ -446,7 +449,7 @@ class FlowModule(LightningModule):
                 model_out = self.forward(batch)
 
             pred_trans_1 = model_out['pred_trans']
-            pred_rots_1 = model_out['pred_rotmats']
+            pred_rots_1 = model_out['pred_rots'].get_rot_mats()
             pred_rots_vf = model_out['pred_rots_vf']
 
             model_traj.append(
@@ -462,10 +465,8 @@ class FlowModule(LightningModule):
             # ODE step on the rotations
 
             # Not sure how to deal with this case
-            assert not self._model_cfg.predict_rot_vf
-
             rots_t_2 = so3_utils.geodesic_t(
-                (-d_t) / t_1, pred_rots_1, rots_t_1) 
+                d_t / t_1, None, rots_t_1, rot_vf=pred_rots_vf) 
 
             t_1 = t_2
             if return_traj:
@@ -489,7 +490,7 @@ class FlowModule(LightningModule):
             model_out = self.forward(batch)
 
         pred_trans_1 = model_out['pred_trans']
-        pred_rots_1 = model_out['pred_rotmats']
+        pred_rots_1 = model_out['pred_rots'].get_rot_mats()
         pred_rots_vf = model_out['pred_rots_vf']
 
         trans_t_2 = pred_trans_1
@@ -547,7 +548,7 @@ class FlowModule(LightningModule):
                 f"train/{k}", v, prog_bar=False, batch_size=num_batch)
         
         # Losses to track. Stratified across t.
-        batch_t = torch.squeeze(batch['t'])
+        batch_t = torch.squeeze(noisy_batch['t'])
         self._log_scalar(
             "train/t",
             np.mean(du.to_numpy(batch_t)),

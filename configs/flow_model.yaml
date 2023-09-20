@@ -14,14 +14,12 @@ model:
     predict_rot_vf: True
 
 experiment:
-  debug: False
-  warm_start: ckpt/se3-fm/flow_model/2023-09-15_18-21-26/last.ckpt
   training:
-    self_correcting: True
     loss: se3_vf_loss
-    bb_atom_scale: 0.5
+    trans_scale: 0.25
+  num_devices: 2
   wandb:
-    name: flow_model_se3_vf
+    name: flow_model
     tags: ['experimental']
   trainer:
     accumulate_grad_batches: 2
