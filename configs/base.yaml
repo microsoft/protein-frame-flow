@@ -70,8 +70,8 @@ model:
     predict_rot_vf: False
 
   flow:
-    use_rot_updates: True
-    predict_rot_vf: False
+    use_rot_updates: False
+    predict_rot_vf: True
     node_embed_size: 256
     edge_embed_size: 128
     symmetric: True
@@ -183,6 +183,7 @@ experiment:
     name: baseline
     project: se3-fm
     save_code: True
+    entity: protein-diffusion
     tags: ['baseline']
   optimizer:
     lr: 0.0001

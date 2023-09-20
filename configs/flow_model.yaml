@@ -2,22 +2,10 @@ defaults:
   - base
   - _self_
 
-data:
-  sampler:
-    use_batch_repeats: False
-    max_batch_size: 100
-
 model:
   architecture: flow
-  flow:
-    use_rot_updates: False
-    predict_rot_vf: True
 
 experiment:
-  training:
-    loss: se3_vf_loss
-    trans_scale: 0.25
-  num_devices: 2
   wandb:
     name: flow_model
     tags: ['experimental']
