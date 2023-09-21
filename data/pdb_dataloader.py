@@ -249,7 +249,6 @@ class LengthBatcher:
         if len(all_batches) >= self._num_batches:
             all_batches = all_batches[:self._num_batches]
         self.sample_order = all_batches
-        self._log.info(f'Dataloader:{self.rank+1}/{self.num_replicas}. Number of batches: {len(all_batches)} with {num_augments} augments.')
 
     def __iter__(self):
         if self.epoch > 0:

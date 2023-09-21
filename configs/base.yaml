@@ -70,8 +70,8 @@ model:
     predict_rot_vf: False
 
   flow:
-    use_rot_updates: False
-    predict_rot_vf: True
+    use_rot_updates: True
+    predict_rot_vf: False
     node_embed_size: 256
     edge_embed_size: 128
     symmetric: True
@@ -141,8 +141,8 @@ model:
     node_embed_size: 256
     edge_embed_size: 128
     dropout: 0.0
-    use_rot_updates: False
-    predict_rot_vf: True
+    use_rot_updates: True
+    predict_rot_vf: False
     ipa:
       c_s: ${model.framediff.node_embed_size}
       c_z: ${model.framediff.edge_embed_size}
@@ -179,6 +179,7 @@ experiment:
     trans_scale: 0.1
     superimpose: null
     translation_loss_weight: 1.0
+    t_normalize_clip: 0.8
     rotation_loss_weights: 0.5
     aux_loss_weight: 0.0
     aux_loss_t_pass: 0.25
@@ -200,7 +201,7 @@ experiment:
     check_val_every_n_epoch: 1
     deterministic: False
     strategy: ddp
-    accumulate_grad_batches: 2
+    accumulate_grad_batches: 4
     num_sanity_val_steps: -1
   sampling:
     num_timesteps: 100

@@ -169,6 +169,8 @@ class FlowModule(LightningModule):
         num_batch, num_res = res_mask.shape[:2]
         gt_bb_atoms = all_atom.to_atom37(gt_trans_1, gt_rotmats_1)[:, :, :3] 
         batch_t = noisy_batch['t']
+        t_norm_scale = 1 - (1 - self._exp_cfg.min_sigma)*torch.min(
+            batch_t[..., None], torch.tensor(training_cfg.t_normalize_clip))
         
         model_output = self.model(noisy_batch)
         pred_trans_1 = model_output['pred_trans']
@@ -183,33 +185,35 @@ class FlowModule(LightningModule):
             gt_rotmats_1.type(torch.float32)
         )
 
+        # Full backbone atom loss
         pred_bb_atoms = all_atom.to_atom37(pred_trans_1, pred_rotmats_1)[:, :, :3]
-        gt_bb_atoms *= training_cfg.bb_atom_scale
-        pred_bb_atoms *= training_cfg.bb_atom_scale
-
+        gt_bb_atoms *= training_cfg.bb_atom_scale / t_norm_scale[..., None]
+        pred_bb_atoms *= training_cfg.bb_atom_scale / t_norm_scale[..., None]
         loss_denom = torch.sum(res_mask, dim=-1) * 3
-
         bb_atom_loss = torch.sum(
             (gt_bb_atoms - pred_bb_atoms) ** 2 * res_mask[..., None, None],
             dim=(-1, -2, -3)
         ) / loss_denom
 
-        t_norm_scale = 1 - (1 - self._exp_cfg.min_sigma)*batch_t[..., None]
+        # Translation VF loss
         gt_trans = gt_trans_1 * training_cfg.trans_scale
-        gt_trans /= t_norm_scale 
         pred_trans = pred_trans_1 * training_cfg.trans_scale
+        gt_trans /= t_norm_scale 
         pred_trans /= t_norm_scale
         trans_loss = training_cfg.translation_loss_weight * torch.sum(
             (gt_trans - pred_trans) ** 2 * res_mask[..., None],
             dim=(-1, -2)
         ) / loss_denom
         
+        # Clean rotation loss
         rots_loss = training_cfg.rotation_loss_weights * torch.sum(
             (gt_rotvecs_1 - pred_rotvecs_1) ** 2 * res_mask[..., None],
             dim=(-1, -2)
         ) / loss_denom
 
-        rots_vf_error = (gt_rot_vf - pred_rots_vf) / t_norm_scale
+        # Rotation VF loss
+        rots_vf_error = (gt_rot_vf - pred_rots_vf)
+        rots_vf_error /= t_norm_scale
         rots_vf_loss = training_cfg.rotation_loss_weights * torch.sum(
             rots_vf_error ** 2 * res_mask[..., None],
             dim=(-1, -2)
@@ -301,7 +305,6 @@ class FlowModule(LightningModule):
                 batch_size=len(val_epoch_metrics),
             )
         self.validation_epoch_metrics.clear()
-        self._print_logger.info(f'Finished with eval epoch {self.current_epoch}')
         
     @torch.no_grad()
     def run_sampling(
