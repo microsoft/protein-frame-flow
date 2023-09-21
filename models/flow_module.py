@@ -464,10 +464,8 @@ class FlowModule(LightningModule):
             trans_t_2 = trans_t_2 + torch.randn_like(trans_t_2) * np.sqrt( (-d_t) * (2 * t_1) / (1 - t_1)  ) * du.NM_TO_ANG_SCALE
 
             # ODE step on the rotations
-
-            # Not sure how to deal with this case
             rots_t_2 = so3_utils.geodesic_t(
-                d_t / t_1, None, rots_t_1, rot_vf=pred_rots_vf) 
+                (-d_t) / t_1, None, rots_t_1, rot_vf=pred_rots_vf) 
 
             t_1 = t_2
             if return_traj:
@@ -491,8 +489,12 @@ class FlowModule(LightningModule):
             model_out = self.forward(batch)
 
         pred_trans_1 = model_out['pred_trans']
-        pred_rots_1 = model_out['pred_rots'].get_rot_mats()
-        pred_rots_vf = model_out['pred_rots_vf']
+
+        if self._model_cfg.predict_rot_vf:
+            pred_rots_vf = model_out['pred_rots_vf'] # magnitude of this is tiny
+            pred_rots_1 = so3_utils.geodesic_t(1, None, rots_t_1, rot_vf=pred_rots_vf)
+        else:
+            pred_rots_1 = model_out['pred_rots'].get_rot_mats()
 
         trans_t_2 = pred_trans_1
         rots_t_2 = pred_rots_1
