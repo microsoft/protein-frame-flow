@@ -1,0 +1,17 @@
+defaults:
+  - base
+  - _self_
+
+data:
+  sampler:
+    use_batch_repeats: True
+
+experiment:
+  debug: False
+  warm_start: ./ckpt/se3-fm/self_correcting/2023-09-20_21-00-17/last.ckpt
+  training:
+    self_correcting: True
+  wandb:
+    name: self_correcting
+  trainer:
+    accumulate_grad_batches: 4

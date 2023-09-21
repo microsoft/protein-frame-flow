@@ -4,8 +4,8 @@ data:
     max_num_res: 128
     min_num_res: 0
     subset: null
-    samples_per_eval_length: 2
-    num_eval_lengths: 4
+    samples_per_eval_length: 5
+    num_eval_lengths: 8
     min_eval_length: 500
     csv_path: ./preprocessed/metadata.csv
   loader:
@@ -178,7 +178,11 @@ experiment:
     bb_atom_scale: 0.1
     trans_scale: 0.1
     superimpose: null
+    translation_loss_weight: 1.0
     rotation_loss_weights: 0.5
+    aux_loss_weight: 0.0
+    aux_loss_t_pass: 0.25
+    max_t: 0.98
   wandb:
     name: baseline
     project: se3-fm
@@ -201,6 +205,7 @@ experiment:
   sampling:
     num_timesteps: 100
     min_t: 1e-3
+    max_t: 1.0
     prior_scale: 1.0
     do_sde: False
   checkpointer:

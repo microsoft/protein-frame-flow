@@ -125,7 +125,7 @@ class FlowModule(LightningModule):
         device = gt_trans_1.device
         num_batch, num_res, _ = gt_trans_1.shape
         if t is None:
-            t = torch.rand(num_batch, 1, 1, device=device)
+            t = torch.rand(num_batch, 1, 1, device=device) * self._exp_cfg.training.max_t
         noisy_batch['t'] = t[:, 0]
 
         if self._exp_cfg.batch_ot.enabled:
@@ -168,6 +168,7 @@ class FlowModule(LightningModule):
         res_mask = noisy_batch['res_mask']
         num_batch, num_res = res_mask.shape[:2]
         gt_bb_atoms = all_atom.to_atom37(gt_trans_1, gt_rotmats_1)[:, :, :3] 
+        batch_t = noisy_batch['t']
         
         model_output = self.model(noisy_batch)
         pred_trans_1 = model_output['pred_trans']
@@ -193,12 +194,12 @@ class FlowModule(LightningModule):
             dim=(-1, -2, -3)
         ) / loss_denom
 
-        t_norm_scale = 1 - (1 - self._exp_cfg.min_sigma)*noisy_batch['t'][..., None]
+        t_norm_scale = 1 - (1 - self._exp_cfg.min_sigma)*batch_t[..., None]
         gt_trans = gt_trans_1 * training_cfg.trans_scale
         gt_trans /= t_norm_scale 
         pred_trans = pred_trans_1 * training_cfg.trans_scale
         pred_trans /= t_norm_scale
-        trans_loss = torch.sum(
+        trans_loss = training_cfg.translation_loss_weight * torch.sum(
             (gt_trans - pred_trans) ** 2 * res_mask[..., None],
             dim=(-1, -2)
         ) / loss_denom
@@ -215,10 +216,10 @@ class FlowModule(LightningModule):
         ) / loss_denom
 
         # Pairwise distance loss
-        gt_flat_atoms = gt_bb_atoms.reshape([num_batch, num_res*3, 3]) * du.NM_TO_ANG_SCALE
+        gt_flat_atoms = gt_bb_atoms.reshape([num_batch, num_res*3, 3])
         gt_pair_dists = torch.linalg.norm(
             gt_flat_atoms[:, :, None, :] - gt_flat_atoms[:, None, :, :], dim=-1)
-        pred_flat_atoms = pred_bb_atoms.reshape([num_batch, num_res*3, 3]) * du.NM_TO_ANG_SCALE
+        pred_flat_atoms = pred_bb_atoms.reshape([num_batch, num_res*3, 3])
         pred_pair_dists = torch.linalg.norm(
             pred_flat_atoms[:, :, None, :] - pred_flat_atoms[:, None, :, :], dim=-1)
 
@@ -231,10 +232,6 @@ class FlowModule(LightningModule):
         pred_pair_dists = pred_pair_dists * flat_loss_mask[..., None]
         pair_dist_mask = flat_loss_mask[..., None] * flat_res_mask[:, None, :]
 
-        # No loss on anything >12A
-        proximity_mask = gt_pair_dists < 12
-        pair_dist_mask  = pair_dist_mask * proximity_mask
-
         dist_mat_loss = torch.sum(
             (gt_pair_dists - pred_pair_dists)**2 * pair_dist_mask,
             dim=(1, 2))
@@ -242,7 +239,8 @@ class FlowModule(LightningModule):
 
         se3_loss = trans_loss + rots_loss
         se3_vf_loss = trans_loss + rots_vf_loss
-        full_dist_loss = bb_atom_loss + dist_mat_loss
+        auxiliary_loss = (bb_atom_loss + dist_mat_loss) * (batch_t[:, 0] > training_cfg.aux_loss_t_pass)
+        auxiliary_loss *= self._exp_cfg.training.aux_loss_weight
 
         return noisy_batch, {
             "bb_atom_loss": bb_atom_loss,
@@ -250,7 +248,7 @@ class FlowModule(LightningModule):
             "rots_loss": rots_loss,
             "se3_loss": se3_loss,
             "dist_mat_loss": dist_mat_loss,
-            "full_dist_loss": full_dist_loss,
+            "auxiliary_loss": auxiliary_loss,
             "rots_vf_loss": rots_vf_loss,
             "se3_vf_loss": se3_vf_loss
         }
@@ -350,7 +348,7 @@ class FlowModule(LightningModule):
         prot_traj = [(trans_0, rots_0)]
         if num_timesteps is None:
             num_timesteps = self._sampling_cfg.num_timesteps
-        ts = torch.linspace(self._sampling_cfg.min_t, 1.0, num_timesteps)
+        ts = torch.linspace(self._sampling_cfg.min_t, self._sampling_cfg.max_t, num_timesteps)
         if self._exp_cfg.rescale_time:
             ts = flow_utils.reschedule(ts)
         t_1 = ts[0]
@@ -523,11 +521,10 @@ class FlowModule(LightningModule):
         with torch.no_grad():
             model_output = self.model(tmp_batch)
         tmp_batch['trans_1'] = model_output['pred_trans']
-        tmp_batch['rotmats_1'] = model_output['pred_rotmats']
-        correcting_batch = self._corrupt_batch(tmp_batch)
+        tmp_batch['rotmats_1'] = model_output['pred_rots'].get_rot_mats()
+        correcting_batch = self._corrupt_batch(tmp_batch, t=tmp_batch['t'][..., None])
         noisy_batch['trans_t'] = correcting_batch['trans_t']
         noisy_batch['rotmats_t'] = correcting_batch['rotmats_t']
-        noisy_batch['t'] = correcting_batch['t']
         return noisy_batch
 
     def training_step(self, batch: Any, stage: int):
@@ -568,10 +565,13 @@ class FlowModule(LightningModule):
         step_time = time.time() - step_start_time
         self._log_scalar(
             "train/examples_per_second", num_batch / step_time, rank_zero_only=False)
-
+        train_loss = (
+            total_losses[self._exp_cfg.training.loss]
+            +  total_losses['auxiliary_loss']
+        )
         self._log_scalar(
-            "train/loss", total_losses[self._exp_cfg.training.loss], batch_size=num_batch)
-        return total_losses[self._exp_cfg.training.loss]
+            "train/loss", train_loss, batch_size=num_batch)
+        return train_loss
 
     def configure_optimizers(self):
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
