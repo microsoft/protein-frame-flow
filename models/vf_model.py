@@ -52,7 +52,10 @@ class VFModel(nn.Module):
         self.rigids_nm_to_ang = lambda x: x.apply_trans_fn(lambda x: x * 10.0)
         
         # Initial node embeddings
-        node_feat_size = self._model_conf.t_embed_size + self._model_conf.index_embed_size
+
+        node_feat_size = self._model_conf.index_embed_size
+        if self._model_conf.embed_time:
+            node_feat_size += self._model_conf.t_embed_size
         node_embed_size = self._model_conf.node_embed_size
         self.node_embedder = nn.Sequential(
             nn.Linear(node_feat_size, node_embed_size),
@@ -134,13 +137,14 @@ class VFModel(nn.Module):
             node_indices,
             self._model_conf.index_embed_size
         )[None].repeat(num_batch, 1, 1)
-        t_embed = get_timestep_embedding(
-            input_feats['t'][:, 0],
-            self._model_conf.t_embed_size
-        )[:, None, :].repeat(1, num_res, 1)
-        init_node_feats = torch.concat(
-            [index_embed, t_embed], dim=-1)
-        init_node_embed = self.node_embedder(init_node_feats)
+        init_feats = [index_embed]
+        if self._model_conf.embed_time:
+            t_embed = get_timestep_embedding(
+                input_feats['t'][:, 0],
+                self._model_conf.t_embed_size
+            )[:, None, :].repeat(1, num_res, 1)
+            init_feats.append(t_embed)
+        init_node_embed = self.node_embedder(torch.concat(init_feats, dim=-1))
 
         # Initial edge embeddings
         rel_seq_offset = node_indices[:, None] - node_indices[None, :]

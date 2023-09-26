@@ -74,7 +74,7 @@ model:
     predict_rot_vf: False
     node_embed_size: 256
     edge_embed_size: 128
-    symmetric: True
+    symmetric: False
     node_features:
       c_s: ${model.flow.node_embed_size}
       c_pos_emb: 128
@@ -137,6 +137,7 @@ model:
 
   framediff:
     t_embed_size: 64
+    embed_time: True
     index_embed_size: 64
     node_embed_size: 256
     edge_embed_size: 128
@@ -167,6 +168,8 @@ experiment:
   rescale_time: False
   use_swa: False
   min_sigma: 1e-2
+  min_t: 1e-3
+  max_t: 0.98
   batch_ot:
     enabled: True
     cost: kabsch
@@ -176,19 +179,20 @@ experiment:
     self_correcting: False
     loss: se3_vf_loss
     bb_atom_scale: 0.1
+    translation_loss_t_upper: 1.0
+    bb_atom_loss_t_lower: 0.0
     trans_scale: 0.1
     superimpose: null
-    translation_loss_weight: 1.0
-    t_normalize_clip: 0.8
+    translation_loss_weight: 2.0
+    t_normalize_clip: 0.9
     rotation_loss_weights: 0.5
+    rotation_loss_t_upper: 1.0
     aux_loss_weight: 0.0
     aux_loss_t_pass: 0.25
-    max_t: 0.98
   wandb:
     name: baseline
     project: se3-fm
     save_code: True
-    entity: protein-diffusion
     tags: ['baseline']
   optimizer:
     lr: 0.0001
@@ -205,8 +209,6 @@ experiment:
     num_sanity_val_steps: -1
   sampling:
     num_timesteps: 100
-    min_t: 1e-3
-    max_t: 1.0
     prior_scale: 1.0
     do_sde: False
   checkpointer:

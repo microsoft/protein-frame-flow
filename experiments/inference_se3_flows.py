@@ -164,11 +164,12 @@ class Sampler:
         self._model = FlowModule.load_from_checkpoint(
             checkpoint_path=ckpt_path,
             model_cfg=self._cfg.model,
-            experiment_cfg=self._cfg.experiment
+            experiment_cfg=self._cfg.experiment,
+            map_location=self.device
         ) 
         self._model.model = self._model.model.to(self.device)
         self._model.eval()
-        self._model_ckpt = torch.load(ckpt_path)
+        self._model_ckpt = torch.load(ckpt_path, map_location=self.device)
 
         # Set-up directories to write results to
         output_base_dir = self._infer_cfg.output_dir

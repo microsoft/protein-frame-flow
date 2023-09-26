@@ -125,7 +125,8 @@ class FlowModule(LightningModule):
         device = gt_trans_1.device
         num_batch, num_res, _ = gt_trans_1.shape
         if t is None:
-            t = torch.rand(num_batch, 1, 1, device=device) * self._exp_cfg.training.max_t
+            t = torch.rand(num_batch, 1, 1, device=device) * (1 - self._exp_cfg.min_t) + self._exp_cfg.min_t
+            t *= self._exp_cfg.max_t
         noisy_batch['t'] = t[:, 0]
 
         if self._exp_cfg.batch_ot.enabled:
@@ -194,30 +195,36 @@ class FlowModule(LightningModule):
             (gt_bb_atoms - pred_bb_atoms) ** 2 * res_mask[..., None, None],
             dim=(-1, -2, -3)
         ) / loss_denom
+        bb_atom_loss *= batch_t[..., 0] > training_cfg.bb_atom_loss_t_lower
 
         # Translation VF loss
         gt_trans = gt_trans_1 * training_cfg.trans_scale
         pred_trans = pred_trans_1 * training_cfg.trans_scale
-        gt_trans /= t_norm_scale 
+        gt_trans /= t_norm_scale
         pred_trans /= t_norm_scale
         trans_loss = training_cfg.translation_loss_weight * torch.sum(
             (gt_trans - pred_trans) ** 2 * res_mask[..., None],
             dim=(-1, -2)
         ) / loss_denom
-        
+        trans_loss *= batch_t[..., 0] < training_cfg.translation_loss_t_upper
+
         # Clean rotation loss
         rots_loss = training_cfg.rotation_loss_weights * torch.sum(
             (gt_rotvecs_1 - pred_rotvecs_1) ** 2 * res_mask[..., None],
             dim=(-1, -2)
         ) / loss_denom
+        rots_loss *= self._exp_cfg.noise_rots
 
         # Rotation VF loss
+        gt_rot_vf /= t_norm_scale
+        pred_rots_vf /= t_norm_scale
         rots_vf_error = (gt_rot_vf - pred_rots_vf)
-        rots_vf_error /= t_norm_scale
-        rots_vf_loss = training_cfg.rotation_loss_weights * torch.sum(
+        rots_vf_loss = torch.sum(
             rots_vf_error ** 2 * res_mask[..., None],
             dim=(-1, -2)
         ) / loss_denom
+        rots_vf_loss *= training_cfg.rotation_loss_weights
+        rots_vf_loss *= batch_t[..., 0] < training_cfg.rotation_loss_t_upper
 
         # Pairwise distance loss
         gt_flat_atoms = gt_bb_atoms.reshape([num_batch, num_res*3, 3])
@@ -245,7 +252,6 @@ class FlowModule(LightningModule):
         se3_vf_loss = trans_loss + rots_vf_loss
         auxiliary_loss = (bb_atom_loss + dist_mat_loss) * (batch_t[:, 0] > training_cfg.aux_loss_t_pass)
         auxiliary_loss *= self._exp_cfg.training.aux_loss_weight
-
         return noisy_batch, {
             "bb_atom_loss": bb_atom_loss,
             "trans_loss": trans_loss,
@@ -332,8 +338,6 @@ class FlowModule(LightningModule):
         return_traj,
         return_model_outputs,
         num_timesteps,
-        debug_trans: bool = False,
-        debug_rots: bool = False,
         ):
 
         batch, _ = batch
@@ -351,7 +355,7 @@ class FlowModule(LightningModule):
         prot_traj = [(trans_0, rots_0)]
         if num_timesteps is None:
             num_timesteps = self._sampling_cfg.num_timesteps
-        ts = torch.linspace(self._sampling_cfg.min_t, self._sampling_cfg.max_t, num_timesteps)
+        ts = torch.linspace(self._exp_cfg.min_t, self._exp_cfg.max_t, num_timesteps)
         if self._exp_cfg.rescale_time:
             ts = flow_utils.reschedule(ts)
         t_1 = ts[0]
@@ -360,11 +364,11 @@ class FlowModule(LightningModule):
             d_t = t_2 - t_1
             trans_t_1, rots_t_1 = prot_traj[-1]
             with torch.no_grad():
-                if self._exp_cfg.noise_trans and not debug_trans:
+                if self._exp_cfg.noise_trans:
                     batch['trans_t'] = trans_t_1
                 else:
                     batch['trans_t'] = batch['trans_1']
-                if self._exp_cfg.noise_rots and not debug_rots:
+                if self._exp_cfg.noise_rots:
                     batch['rotmats_t'] = rots_t_1
                 else:
                     batch['rotmats_t'] = batch['rotmats_1']
@@ -428,7 +432,7 @@ class FlowModule(LightningModule):
         # Run sampling from t=1.0 back to t=0.0 (flipped definition of time)
         # Avoid singularities near both end points
         # use 1/num_timesteps because if d_t >> min_t then you can still get explosions
-        ts = np.linspace(1.0 - (1/num_timesteps), self._sampling_cfg.min_t, num_timesteps)
+        ts = np.linspace(1.0 - (1/num_timesteps), self._exp_cfg.min_t, num_timesteps)
         t_1 = ts[0]
         model_traj = []
         for t_2 in ts[1:]:
@@ -536,7 +540,7 @@ class FlowModule(LightningModule):
         step_start_time = time.time()
         noisy_batch = self._corrupt_batch(batch)
         self_correct = False
-        if self._exp_cfg.training.self_correcting and random.random() < 0.5:
+        if self._exp_cfg.training.self_correcting and random.random() < 0.25:
             self_correct = True
             noisy_batch = self._self_correct(noisy_batch)
         self._log_scalar('train/self_correct', int(self_correct), prog_bar=False)

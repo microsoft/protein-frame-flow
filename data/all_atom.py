@@ -240,3 +240,34 @@ def transrot_to_atom37(transrot_traj, res_mask):
             )
         atom37_traj.append(torch.stack(batch_atom37))
     return atom37_traj
+
+
+def atom37_from_trans_rot(trans, rots, res_mask):
+        rigids = du.create_rigid(rots, trans)
+        atom37 = compute_backbone(
+            rigids,
+            torch.zeros(
+                trans.shape[0],
+                trans.shape[1],
+                2,
+                device=trans.device
+            )
+        )[0]
+        atom37 = atom37.detach().cpu()
+        batch_atom37 = []
+        num_batch = res_mask.shape[0]
+        for i in range(num_batch):
+            batch_atom37.append(
+                du.adjust_oxygen_pos(atom37[i], res_mask[i])
+            )
+        return torch.stack(batch_atom37)
+
+
+def process_trans_rot_traj(trans_traj, rots_traj, res_mask):
+    res_mask = res_mask.detach().cpu()
+    atom37_traj = [
+         atom37_from_trans_rot(trans, rots, res_mask)
+         for trans, rots in zip(trans_traj, rots_traj) 
+    ]
+    atom37_traj = torch.stack(atom37_traj).swapaxes(0, 1)
+    return atom37_traj
