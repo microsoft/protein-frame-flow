@@ -23,7 +23,7 @@ data:
 
 experiment:
   # Experiment metadata
-  name: scope_se3_flow_log_schedule
+  name: scope_hybrid_trans_diff_rots_fm
   run_id: null
 
   #training mode
@@ -32,12 +32,13 @@ experiment:
   # Training arguments
   log_freq: 1000
   batch_size: 256
-  sample_mode: time_batch
+  sample_mode: length_batch
   rot_loss: vf
   rot_loss_weight: 0.5
   rot_loss_t_threshold: 0.0
 
-  # warm_start: ./ckpt/scope/16D_09M_2023Y_13h_50m_22s
+  # warm_start: ./ckpt/se3-fm/se3_vf_loss/2023-09-18_11-22-19
+  # warm_start: ./ckpt/scope_se3_flow_t_fixed/20D_09M_2023Y_08h_13m_42s
 
   # num_loader_workers: 0
   # num_gpus: 1

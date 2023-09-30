@@ -113,6 +113,7 @@ class R3Diffuser:
             mask: np.ndarray=None,
             center: bool=True,
             noise_scale: float=1.0,
+            use_sde: bool=True,
         ):
         """Simulates the reverse SDE for 1 step
 
@@ -132,7 +133,10 @@ class R3Diffuser:
         g_t = self.diffusion_coef(t)
         f_t = self.drift_coef(x_t, t)
         z = noise_scale * np.random.normal(size=score_t.shape)
-        perturb = (f_t - g_t**2 * score_t) * dt + g_t * np.sqrt(dt) * z
+        if use_sde:
+            perturb = (f_t - g_t**2 * score_t) * dt + g_t * np.sqrt(dt) * z
+        else:
+            perturb = 0.5 * (f_t - g_t**2 * score_t) * dt 
 
         if mask is not None:
             perturb *= mask[..., None]

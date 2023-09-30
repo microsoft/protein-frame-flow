@@ -455,6 +455,7 @@ class Sampler:
             min_t=self._diff_conf.min_t, 
             aux_traj=True,
             noise_scale=self._diff_conf.noise_scale,
+            use_sde=self._diff_conf.use_sde,
         )
         return tree.map_structure(lambda x: x[:, 0], sample_out)
 

@@ -18,7 +18,7 @@ data:
     num_batches: null
 
 model:
-  architecture: framediff
+  architecture: flow
 
   # New architecture
   flower:
@@ -89,7 +89,9 @@ model:
       relpos_k: 64
       use_rbf: True
       num_rbf: 32
-      symmetric: ${model.flow.symmetric}
+      feat_dim: 64
+      num_bins: 22
+      self_condition: True
     ipa:
       c_s: ${model.flow.node_embed_size}
       c_z: ${model.flow.edge_embed_size}
@@ -170,6 +172,8 @@ experiment:
   min_sigma: 1e-2
   min_t: 1e-3
   max_t: 0.98
+  so3_prior: igso3
+  self_condition: ${model.flow.edge_features.self_condition}
   batch_ot:
     enabled: True
     cost: kabsch
@@ -185,7 +189,7 @@ experiment:
     superimpose: null
     translation_loss_weight: 2.0
     t_normalize_clip: 0.9
-    rotation_loss_weights: 0.5
+    rotation_loss_weights: 1.0
     rotation_loss_t_upper: 1.0
     aux_loss_weight: 0.0
     aux_loss_t_pass: 0.25
@@ -202,9 +206,9 @@ experiment:
     max_epochs: 1000
     accelerator: gpu
     log_every_n_steps: 1
-    check_val_every_n_epoch: 1
     deterministic: False
     strategy: ddp
+    check_val_every_n_epoch: 5
     accumulate_grad_batches: 4
     num_sanity_val_steps: -1
   sampling:

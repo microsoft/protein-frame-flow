@@ -7,14 +7,35 @@ inference:
   name: null
   seed: 123
 
+  # https://wandb.ai/jyim/se3-fm/runs/z8rydc7e/overview
+  ckpt_path: ckpt/se3-fm/warm_start_self_condition_uniform/2023-09-29_14-57-36/last.ckpt
+
+  # https://wandb.ai/jyim/se3-fm/runs/q501fffp/overview
+  # ckpt_path: ckpt/se3-fm/warm_start_self_condition/2023-09-29_14-34-20/last.ckpt
+
+  # https://wandb.ai/jyim/se3-fm/runs/gkllbijk/overview
+  # ckpt_path: ckpt/se3-fm/warm_start_self_condition_faster/2023-09-29_14-38-40/last.ckpt
+
+  # https://wandb.ai/jyim/se3-fm/runs/jehepz92
+  # ckpt_path: ckpt/se3-fm/baseline/2023-09-28_19-24-06/last.ckpt
+
+  # https://wandb.ai/protein-diffusion/se3-fm/runs/0rx50arn/overview
+  # ckpt_path: ckpt/se3-fm/baseline_faster/2023-09-23_08-04-04/last.ckpt
+
+  # https://wandb.ai/protein-diffusion/se3-fm/runs/61noaiso
+  # ckpt_path: ckpt/se3-fm/self_correcting/2023-09-20_22-38-33/last.ckpt
+
+  # https://wandb.ai/jyim/se3-fm/runs/vnftjmcn/overview
+  # ckpt_path: ckpt/se3-fm/se3_vf_loss_rescaled/2023-09-20_05-48-51/last.ckpt  
+
   # https://wandb.ai/jyim/se3-fm/runs/0sfpo74r/overview
-  ckpt_path: ckpt/se3-fm/warm_start/2023-09-05_20-21-01/last.ckpt
+  # ckpt_path: ckpt/se3-fm/warm_start/2023-09-05_20-21-01/last.ckpt
 
   # https://wandb.ai/jyim/se3-fm/runs/z0zlh0xs/overview
   # ckpt_path: ckpt/se3-fm/flower/2023-09-05_20-34-26/last.ckpt
   
   use_gpu: True
-  use_ca_pmpnn: True
+  use_ca_pmpnn: False
 
   # Number of steps.
   num_timesteps: 100
@@ -29,7 +50,7 @@ inference:
   wandb_enable: True
   wandb:
     project: se3-fm-inference
-    tags: ['ts_${inference.num_timesteps}']
+    tags: ['ts_${inference.num_timesteps}','ca_mpnn_${inference.use_ca_pmpnn}']
 
   samples:
     # Number of backbone samples per sequence length.

@@ -606,6 +606,7 @@ class BaseSampleSO3(nn.Module):
         interpolate: bool = True,
         cache_dir: Optional[str] = None,
         overwrite_cache: bool = False,
+        device: str = 'cpu',
     ) -> None:
         """
         Base torch.nn module for sampling rotations from the IGSO(3) distribution. Samples are
@@ -643,6 +644,7 @@ class BaseSampleSO3(nn.Module):
         self.omega_exponent = omega_exponent
         self.tol = tol
         self.interpolate = interpolate
+        self.device = device
         self.register_buffer("sigma_grid", sigma_grid, persistent=False)
 
         # Generate / load lookups and store in non-persistent buffers.
@@ -770,7 +772,7 @@ class BaseSampleSO3(nn.Module):
         # Even if Pytorch Lightning usually handles GPU allocation after initialization, this is
         # required to initialize the module in GPU reducing the initializaiton time by orders of magnitude.
         if torch.cuda.is_available():
-            sigma_grid_tmp = sigma_grid_tmp.to(device="cuda")
+            sigma_grid_tmp = sigma_grid_tmp.to(device=self.device)
 
         # Set up grid for angle resolution. Convert to double precision for better handling of numerics.
         omega_grid = torch.linspace(0.0, 1, self.num_omega + 1).to(sigma_grid_tmp)
@@ -910,6 +912,7 @@ class SampleIGSO3(BaseSampleSO3):
         l_max: int = 1000,
         cache_dir: Optional[str] = None,
         overwrite_cache: bool = False,
+        device: str = 'cpu',
     ) -> None:
         """
         Module for sampling rotations from the IGSO(3) distribution using the explicit series
@@ -952,6 +955,7 @@ class SampleIGSO3(BaseSampleSO3):
             interpolate=interpolate,
             cache_dir=cache_dir,
             overwrite_cache=overwrite_cache,
+            device=device,
         )
 
     def _get_cache_name(self) -> str:

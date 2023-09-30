@@ -168,6 +168,7 @@ class SE3Diffuser:
             diffuse_mask: np.ndarray = None,
             center: bool=True,
             noise_scale: float=1.0,
+            use_sde: bool=True,
         ):
         """Reverse sampling function from (t) to (t-1).
 
@@ -193,6 +194,7 @@ class SE3Diffuser:
                 t=t,
                 dt=dt,
                 noise_scale=noise_scale,
+                use_sde=use_sde,
                 )
         if not self._diffuse_trans:
             trans_t_1 = trans_t
@@ -203,7 +205,8 @@ class SE3Diffuser:
                 t=t,
                 dt=dt,
                 center=center,
-                noise_scale=noise_scale
+                noise_scale=noise_scale,
+                use_sde=use_sde,
                 )
 
         if diffuse_mask is not None:

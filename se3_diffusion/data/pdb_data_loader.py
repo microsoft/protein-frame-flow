@@ -227,7 +227,6 @@ class PdbDataset(data.Dataset):
 
             # Flow
             if self.data_conf.flow_se3:
-                t = r3_flow_utils.sigma_t(t)
                 trans_0 = gt_bb_rigid.get_trans()
                 rotmats_0 = torch.tensor(gt_bb_rigid.get_rots().get_rot_mats(), dtype=float)
 
@@ -235,12 +234,15 @@ class PdbDataset(data.Dataset):
                 rotmats_1 = torch.tensor(Rotation.random(num_res).as_matrix(), dtype=float)
                 trans_nm_1 = torch.randn(*trans_0.shape)
 
-                rotmats_t = flow_so3_utils.geodesic_t(1 - t, rotmats_0, rotmats_1)
+                rotmats_t = flow_so3_utils.geodesic_t(1-t, rotmats_0, rotmats_1)
                 rotvecs_t = flow_so3_utils.rotmat_to_rotvec(rotmats_t)
-                trans_t = (t * trans_nm_1 + (1-t) * trans_0 * 0.1)*10.0
+                rots_vf = flow_so3_utils.calc_rot_vf(rotmats_t, rotmats_0)
+                #trans_t = (t * trans_nm_1 + (1-t) * trans_0 * 0.1)*10.0
+                trans_t = diff_feats_t['rigids_t'][..., 4:] 
 
                 rigids_t = se3_diffuser._assemble_rigid(rotvecs_t, trans_t)
                 diff_feats_t['rigids_t'] = rigids_t.to_tensor_7()
+                diff_feats_t['rots_vf'] = rots_vf 
         else:
             t = 1.0
             diff_feats_t = self.diffuser.sample_ref(

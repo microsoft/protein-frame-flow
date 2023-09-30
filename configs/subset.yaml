@@ -2,16 +2,112 @@ defaults:
   - base
   - _self_
 
+model:
+  architecture: flow
+
+  flow:
+    use_rot_updates: True
+    predict_rot_vf: False
+    node_embed_size: 256
+    edge_embed_size: 128
+    symmetric: False
+    node_features:
+      c_s: ${model.flow.node_embed_size}
+      c_pos_emb: 128
+      c_timestep_emb: 128
+      embed_t: True
+      max_num_res: 2000
+      timestep_int: 1000
+    edge_features:
+      single_bias_transition_n: 2
+      c_s: ${model.flow.node_embed_size}
+      c_p: ${model.flow.edge_embed_size}
+      relpos_k: 64
+      use_rbf: True
+      num_rbf: 32
+      symmetric: ${model.flow.symmetric}
+      self_condition: False
+    ipa:
+      c_s: ${model.flow.node_embed_size}
+      c_z: ${model.flow.edge_embed_size}
+      c_hidden: 128
+      no_heads: 8
+      no_qk_points: 8
+      no_v_points: 12
+      seq_tfmr_num_heads: 4
+      seq_tfmr_num_layers: 2
+      num_blocks: 4
+
+  # framediff:
+  #   t_embed_size: 64
+  #   embed_time: True
+  #   index_embed_size: 64
+  #   node_embed_size: 128
+  #   edge_embed_size: 128
+  #   dropout: 0.0
+  #   use_rot_updates: True
+  #   predict_rot_vf: False
+  #   ipa:
+  #     c_s: ${model.framediff.node_embed_size}
+  #     c_z: ${model.framediff.edge_embed_size}
+  #     c_hidden: 64
+  #     use_skip: True
+  #     c_skip: 64
+  #     no_heads: 8
+  #     no_qk_points: 8
+  #     no_v_points: 12
+  #     seq_tfmr_num_heads: 4
+  #     seq_tfmr_num_layers: 2
+  #     num_blocks: 6
+
 data:
+  # CSV for path and metadata to training examples.
   dataset:
-    max_num_res: 128
     min_num_res: 100
-    subset: 100
+    max_num_res: 101
+    subset: 10
   sampler:
-    num_batches: 1000
+    use_batch_repeats: True
+  loader:
+    num_workers: 0
 
 experiment:
   debug: False
+  num_devices: 1
+  min_t: 1e-3
+  noise_trans: True
+  noise_rots: True
+  batch_ot:
+    enabled: False
+    permute: False
+  # rescale_time: True
+  #   translation_loss_weight: 1.0
+  #   translation_loss_t_upper: 0.75
+  #   rotation_loss_weights: 0.5
+  #   rotation_loss_t_upper: 0.75
+    # bb_atom_loss_t_lower: 0.75
+
+    # t_normalize_clip: 0.75
+    # bb_atom_scale: 0.1
+    # bb_atom_loss_t_lower: 0.0
+    # loss: bb_atom_loss
+  training:
+    loss: se3_vf_loss # bb_atom_loss
+    bb_atom_loss_t_lower: 0.0
+    t_normalize_clip: 0.7
+    self_correcting: False
+    translation_loss_weight: 2.0
+    # translation_loss_weight: 1.0
+
+  optimizer:
+    lr: 0.0001
+  trainer:
+    accumulate_grad_batches: 1
+    check_val_every_n_epoch: 1
+    max_epochs: 1_000_000
+  # warm_start: ./ckpt/se3-fm/subset_100/2023-09-24_10-22-56/last.ckpt
+
   wandb:
     name: subset_${data.dataset.subset}
+    # name: self_condition_subset_${data.dataset.subset}
     tags: ['subset']

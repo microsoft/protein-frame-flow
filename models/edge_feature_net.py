@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from models.utils import dist_from_ca, calc_rbf
+from models.utils import get_index_embedding, calc_distogram
 
 class EdgeFeatureNet(nn.Module):
 
@@ -12,47 +12,32 @@ class EdgeFeatureNet(nn.Module):
 
         self.c_s = self._cfg.c_s
         self.c_p = self._cfg.c_p
+        self.feat_dim = self._cfg.feat_dim
 
-        if self._cfg.symmetric:
-            self.linear_s_p = nn.Linear(self.c_s, self.c_p)
-            self.n_bin = self._cfg.relpos_k + 1
-        else:
-            self.linear_s_p_i = nn.Linear(self.c_s, self.c_p)
-            self.linear_s_p_j = nn.Linear(self.c_s, self.c_p)
-            self.n_bin = 2 * self._cfg.relpos_k + 1
+        self.linear_s_p = nn.Linear(self.c_s, self.feat_dim)
+        self.linear_relpos = nn.Linear(self.feat_dim, self.feat_dim)
 
-        self.relpos_k = self._cfg.relpos_k
-        self.linear_relpos = nn.Linear(self.n_bin, self.c_p)
-        if self._cfg.use_rbf:
-            self.linear_template = nn.Linear(self._cfg.num_rbf, self.c_p)
-        else:
-            self.linear_template = nn.Linear(1, self.c_p)
-        
-    def _rbf(self, ca_dists):
-        # Distance radial basis function
-        device = ca_dists.device
-        D_min, D_max, D_count = 2., 22., self._cfg.num_rbf
-        D_mu = torch.linspace(D_min, D_max, D_count).to(device)
-        D_mu = D_mu.view([1,1,1,-1])
-        D_sigma = (D_max - D_min) / D_count
-        return torch.exp(-((ca_dists - D_mu) / D_sigma)**2)
+        total_edge_feats = self.feat_dim * 3 + self._cfg.num_bins * 2
+        self.edge_embedder = nn.Sequential(
+            nn.Linear(total_edge_feats, self.c_p),
+            nn.ReLU(),
+            nn.Linear(self.c_p, self.c_p),
+            nn.ReLU(),
+            nn.Linear(self.c_p, self.c_p),
+            nn.LayerNorm(self.c_p),
+        )
 
-    def relpos(self, r):
+    def embed_relpos(self, r):
         # AlphaFold 2 Algorithm 4 & 5
         # Based on OpenFold utils/tensor_utils.py
         # Input: [b, n_res]
-        if self._cfg.symmetric:
-            # [b, n_res, n_res]
-            d = torch.abs(r[:, :, None] - r[:, None, :])
+        # [b, n_res, n_res]
+        d = r[:, :, None] - r[:, None, :]
+        pos_emb = get_index_embedding(d, self._cfg.feat_dim, max_len=2056)
+        return self.linear_relpos(pos_emb)
 
-            # [n_bin]
-            v = torch.arange(self.relpos_k + 1, device=r.device)
-        else:
-            # [b, n_res, n_res]
-            d = r[:, :, None] - r[:, None, :]
-
-            # [n_bin]
-            v = torch.arange(-self.relpos_k, self.relpos_k + 1, device=r.device)
+        # [n_bin]
+        v = torch.arange(-self.relpos_k, self.relpos_k + 1, device=r.device)
         
         # [1, 1, 1, n_bin]
         v_reshaped = v.view(*((1,) * len(d.shape) + (len(v),)))
@@ -68,30 +53,32 @@ class EdgeFeatureNet(nn.Module):
 
         return p
 
-    def forward(self, s, t, p_mask):
+    def _cross_concat(self, feats_1d, num_batch, num_res):
+        return torch.cat([
+            torch.tile(feats_1d[:, :, None, :], (1, 1, num_res, 1)),
+            torch.tile(feats_1d[:, None, :, :], (1, num_res, 1, 1)),
+        ], dim=-1).float().reshape([num_batch, num_res, num_res, -1])
+
+    def forward(self, s, t, sc_t, p_mask):
         # Input: [b, n_res, c_s]
+        num_batch, num_res, _ = s.shape
 
         # [b, n_res, c_p]
-        if self._cfg.symmetric:
-            p_i = self.linear_s_p(s)
-            p = p_i[:, :, None, :] + p_i[:, None, :, :]
-        else:
-            p_i = self.linear_s_p_i(s)
-            p_j = self.linear_s_p_j(s)
-
-            # [b, n_res, n_res, c_p]
-            p = p_i[:, :, None, :] + p_j[:, None, :, :]
+        p_i = self.linear_s_p(s)
+        cross_node_feats = self._cross_concat(p_i, num_batch, num_res)
 
         # [b, n_res]
-        r = torch.arange(s.shape[1], device=s.device).unsqueeze(0).repeat(s.shape[0], 1)
+        r = torch.arange(
+            num_res, device=s.device).unsqueeze(0).repeat(num_batch, 1)
+        relpos_feats = self.embed_relpos(r)
 
-        # [b, n_res, n_res, c_p]
-        p += self.relpos(r)
-        dist_feats = dist_from_ca(t)
-        if self._cfg.use_rbf:
-            dist_feats = calc_rbf(dist_feats, self._cfg.num_rbf)
-        p += self.linear_template(dist_feats)
+        dist_feats = calc_distogram(
+            t, min_bin=1e-3, max_bin=20.0, num_bins=self._cfg.num_bins)
+        sc_feats = calc_distogram(
+            sc_t, min_bin=1e-3, max_bin=20.0, num_bins=self._cfg.num_bins)
 
-        # [b, n_res, n_res, c_p]
-        p *= p_mask.unsqueeze(-1)
-        return p
+        all_edge_feats = torch.concat(
+            [cross_node_feats, relpos_feats, dist_feats, sc_feats], dim=-1)
+        edge_feats = self.edge_embedder(all_edge_feats)
+        edge_feats *= p_mask.unsqueeze(-1)
+        return edge_feats

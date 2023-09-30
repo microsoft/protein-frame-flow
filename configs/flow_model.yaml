@@ -7,7 +7,5 @@ model:
 
 experiment:
   wandb:
-    name: flow_model
-    tags: ['experimental']
-  trainer:
-    accumulate_grad_batches: 2
+    name: flow_model_baseline
+  warm_start: ./ckpt/se3-fm/flow_model_self_correct/2023-09-21_18-40-59/last.ckpt

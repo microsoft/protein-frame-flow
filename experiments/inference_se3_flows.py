@@ -174,9 +174,13 @@ class Sampler:
         # Set-up directories to write results to
         output_base_dir = self._infer_cfg.output_dir
         ckpt_name = '_'.join(ckpt_path.replace('.ckpt', '').split('/')[-3:])
+        mpnn_name = 'ca_mpnn' if cfg.inference.use_ca_pmpnn else 'frame_mpnn'
         if self._infer_cfg.name is None:
             self._output_dir = os.path.join(
-                output_base_dir, ckpt_name, f'ts_{self._infer_cfg.num_timesteps}')
+                output_base_dir, ckpt_name,
+                f'ts_{self._infer_cfg.num_timesteps}',
+                mpnn_name
+                )
         else:
             self._output_dir = os.path.join(output_base_dir, self._infer_cfg.name) 
         os.makedirs(self._output_dir, exist_ok=True)

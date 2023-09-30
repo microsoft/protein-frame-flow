@@ -335,6 +335,7 @@ class SO3Diffuser:
             dt: float,
             mask: np.ndarray=None,
             noise_scale: float=1.0,
+            use_sde: bool=True,
             ):
         """Simulates the reverse SDE for 1 step using the Geodesic random walk.
 
@@ -353,7 +354,10 @@ class SO3Diffuser:
 
         g_t = self.diffusion_coef(t)
         z = noise_scale * np.random.normal(size=score_t.shape)
-        perturb = (g_t ** 2) * score_t * dt + g_t * np.sqrt(dt) * z
+        if use_sde:
+            perturb = (g_t ** 2) * score_t * dt + g_t * np.sqrt(dt) * z
+        else:
+            perturb = 0.5 * (g_t ** 2) * score_t * dt 
 
         if mask is not None: perturb *= mask[..., None]
         n_samples = np.cumprod(rot_t.shape[:-1])[-1]
