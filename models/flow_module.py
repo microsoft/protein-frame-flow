@@ -261,6 +261,7 @@ class FlowModule(LightningModule):
         se3_vf_loss = trans_loss + rots_vf_loss
         auxiliary_loss = (bb_atom_loss + dist_mat_loss) * (batch_t[:, 0] > training_cfg.aux_loss_t_pass)
         auxiliary_loss *= self._exp_cfg.training.aux_loss_weight
+        se3_vf_loss += auxiliary_loss
         return noisy_batch, {
             "bb_atom_loss": bb_atom_loss,
             "trans_loss": trans_loss,
@@ -435,8 +436,8 @@ class FlowModule(LightningModule):
 
         atom37_traj = all_atom.transrot_to_atom37(prot_traj, res_mask)
         if return_model_outputs:
-            model_traj = all_atom.transrot_to_atom37(model_traj, res_mask)
-            return atom37_traj, model_traj
+            model_atom37_traj = all_atom.transrot_to_atom37(model_traj, res_mask)
+            return atom37_traj, model_atom37_traj, model_traj
         return atom37_traj
         
     @torch.no_grad()
@@ -487,10 +488,11 @@ class FlowModule(LightningModule):
                 batch['t'] = torch.ones((num_batch, 1)).to(device) * (1 - t_1)
 
                 model_out = self.forward(batch)
-
             pred_trans_1 = model_out['pred_trans']
             pred_rots_1 = model_out['pred_rots'].get_rot_mats()
             pred_rots_vf = model_out['pred_rots_vf']
+            if self._exp_cfg.self_condition:
+                batch['trans_sc'] = pred_trans_1
 
             model_traj.append(
                 (pred_trans_1.detach().cpu(), pred_rots_1.detach().cpu())
@@ -550,8 +552,8 @@ class FlowModule(LightningModule):
 
         atom37_traj = all_atom.transrot_to_atom37(prot_traj, res_mask)
         if return_model_outputs:
-            model_traj = all_atom.transrot_to_atom37(model_traj, res_mask)
-            return atom37_traj, model_traj
+            model_atom37_traj = all_atom.transrot_to_atom37(model_traj, res_mask)
+            return atom37_traj, model_atom37_traj, model_traj
         return atom37_traj
 
     def _log_scalar(self, key, value, on_step=True, on_epoch=False, prog_bar=True, batch_size=None, sync_dist=False, rank_zero_only=True):

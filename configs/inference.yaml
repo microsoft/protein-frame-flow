@@ -7,8 +7,23 @@ inference:
   name: null
   seed: 123
 
+  # https://wandb.ai/jyim/se3-fm/runs/utm47hxa/overview
+  ckpt_path: ckpt/se3-fm/warm_start/2023-10-01_16-54-48/last.ckpt
+
+  # https://wandb.ai/jyim/se3-fm/runs/qvqfzaj6/overview
+  # ckpt_path: ckpt/se3-fm/warm_start_aux_loss/2023-10-01_17-04-33/last.ckpt
+
+  # https://wandb.ai/jyim/se3-fm/runs/dgd3bt3z
+  # ckpt_path: ckpt/se3-fm/warm_start_aux_loss/2023-09-30_19-24-08/last.ckpt
+
+  # https://wandb.ai/jyim/se3-fm/runs/zhgmrkpx/overview
+  # ckpt_path: ckpt/se3-fm/warm_start_batch_repeats/2023-09-30_15-52-15/last.ckpt
+
+  # https://wandb.ai/jyim/se3-fm/runs/m9fvhm52/overview
+  # ckpt_path: ckpt/se3-fm/warm_start_self_cond_1/2023-09-30_19-03-53/last.ckpt
+
   # https://wandb.ai/jyim/se3-fm/runs/z8rydc7e/overview
-  ckpt_path: ckpt/se3-fm/warm_start_self_condition_uniform/2023-09-29_14-57-36/last.ckpt
+  # ckpt_path: ckpt/se3-fm/warm_start_self_condition_uniform/2023-09-29_14-57-36/last.ckpt
 
   # https://wandb.ai/jyim/se3-fm/runs/q501fffp/overview
   # ckpt_path: ckpt/se3-fm/warm_start_self_condition/2023-09-29_14-34-20/last.ckpt
@@ -38,7 +53,7 @@ inference:
   use_ca_pmpnn: False
 
   # Number of steps.
-  num_timesteps: 100
+  num_timesteps: 10
 
   do_sde: False
 
@@ -50,7 +65,11 @@ inference:
   wandb_enable: True
   wandb:
     project: se3-fm-inference
-    tags: ['ts_${inference.num_timesteps}','ca_mpnn_${inference.use_ca_pmpnn}']
+    tags: [
+      'ts_${inference.num_timesteps}',
+      'ca_mpnn_${inference.use_ca_pmpnn}',
+      'sde_${inference.do_sde}'
+    ]
 
   samples:
     # Number of backbone samples per sequence length.
