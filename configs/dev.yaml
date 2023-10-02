@@ -8,8 +8,8 @@ data:
   #   prefetch_factor: 25
   sampler:
     # max_num_res_squared: 500_000
-    max_batch_size: 128
-    max_num_res_squared: 1_500_000
+    max_batch_size: 100
+    max_num_res_squared: 800_000
     # use_batch_repeats: True
 
 # model:
@@ -21,18 +21,19 @@ experiment:
   debug: False
   # so3_prior: uniform
   wandb:
-    name: warm_start_self_cond_1
+    name: warm_start_large_model_self_correct
 
-  # training:
+  training:
     # aux_loss_weight: 1.0
     # aux_loss_t_pass: 0.5
-  #   self_correcting: True
+    self_correcting: True
 
   trainer:
     accumulate_grad_batches: 4
     check_val_every_n_epoch: 2
 
-  warm_start: ./ckpt/se3-fm/warm_start_self_cond_1/2023-09-30_19-03-53/last.ckpt
+  warm_start: ./ckpt/se3-fm/large_model/2023-09-30_15-47-47/last.ckpt
+  # warm_start: ./ckpt/se3-fm/warm_start_self_cond_1/2023-09-30_19-03-53/last.ckpt
   # warm_start: ./ckpt/se3-fm/warm_start_aux_loss/2023-09-30_19-24-08/last.ckpt
   # warm_start: ./ckpt/se3-fm/warm_start_batch_repeats/2023-09-30_15-52-15/last.ckpt
   # warm_start: ./ckpt/se3-fm/warm_start/2023-09-30_15-50-12/last.ckpt

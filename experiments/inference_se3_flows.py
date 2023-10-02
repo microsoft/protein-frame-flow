@@ -224,6 +224,7 @@ class Sampler:
                     log.info(f'Skipping {sample_dir}')
                     continue
 
+            log.info(f'On sample {sample_i}')
             # Run sampling
             os.makedirs(sample_dir, exist_ok=True)
             init_feats = _create_template_feats(sample_length, self.device)

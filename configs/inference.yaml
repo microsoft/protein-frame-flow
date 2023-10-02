@@ -7,8 +7,11 @@ inference:
   name: null
   seed: 123
 
+  # https://wandb.ai/jyim/se3-fm/runs/395pgv73/overview
+  ckpt_path: ckpt/se3-fm/large_model/2023-09-30_15-47-47/last.ckpt
+
   # https://wandb.ai/jyim/se3-fm/runs/utm47hxa/overview
-  ckpt_path: ckpt/se3-fm/warm_start/2023-10-01_16-54-48/last.ckpt
+  # ckpt_path: ckpt/se3-fm/warm_start/2023-10-01_16-54-48/last.ckpt
 
   # https://wandb.ai/jyim/se3-fm/runs/qvqfzaj6/overview
   # ckpt_path: ckpt/se3-fm/warm_start_aux_loss/2023-10-01_17-04-33/last.ckpt
@@ -53,7 +56,7 @@ inference:
   use_ca_pmpnn: False
 
   # Number of steps.
-  num_timesteps: 10
+  num_timesteps: 100
 
   do_sde: False
 
