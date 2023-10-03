@@ -10,6 +10,7 @@ data:
   filtering:
     max_len: 128
     min_len: 0
+    subset: 1
     allowed_oligomer: null
     max_helix_percent: null
     max_loop_percent: null
@@ -19,11 +20,11 @@ data:
   samples_per_eval_length: 4
   num_eval_lengths: 10
   num_t: 100
-  flow_se3: True
+  flow_se3: False
 
 experiment:
   # Experiment metadata
-  name: scope_hybrid_trans_diff_rots_fm
+  name: scope_subset_1
   run_id: null
 
   #training mode
@@ -33,9 +34,8 @@ experiment:
   log_freq: 1000
   batch_size: 256
   sample_mode: length_batch
-  rot_loss: vf
-  rot_loss_weight: 0.5
-  rot_loss_t_threshold: 0.0
+  # rot_loss_weight: 0.5
+  # rot_loss_t_threshold: 0.0
 
   # warm_start: ./ckpt/se3-fm/se3_vf_loss/2023-09-18_11-22-19
   # warm_start: ./ckpt/scope_se3_flow_t_fixed/20D_09M_2023Y_08h_13m_42s

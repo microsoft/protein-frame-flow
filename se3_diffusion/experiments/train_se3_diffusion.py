@@ -83,7 +83,7 @@ class Experiment:
         # 2. silent rest of logger when use ddp mode
         # 3. silent wandb logger
         # 4. unset checkpoint path if rank is not 0 to avoid saving checkpoints and evaluation
-        if self._use_ddp :
+        if self._use_ddp:
             torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
             dist.init_process_group(backend='nccl')
             self.ddp_info = eu.get_ddp_info()
@@ -549,7 +549,6 @@ class Experiment:
         gt_trans = gt_rigids.get_trans()
         gt_rotmats = gt_rigids.get_rots().get_rot_mats()
         gt_rotvecs = flow_so3_utils.rotmat_to_rotvec(gt_rotmats)
-        gt_rot_vf = batch['rots_vf']
         
         rot_score_scaling = batch['rot_score_scaling']
         batch_loss_mask = torch.any(bb_mask, dim=-1)
