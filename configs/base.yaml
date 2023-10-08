@@ -64,7 +64,6 @@ experiment:
   use_swa: False
   min_sigma: 1e-2
   min_t: 1e-3
-  max_t: 0.98
   so3_prior: uniform
   so3_schedule: exp
   self_condition: ${model.flow.edge_features.self_condition}

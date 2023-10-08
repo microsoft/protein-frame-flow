@@ -1,5 +1,4 @@
 from typing import Any
-
 import torch
 import time
 import os
@@ -110,7 +109,6 @@ class FlowModule(LightningModule):
         num_batch, num_res, _ = gt_trans_1.shape
         if t is None:
             t = torch.rand(num_batch, 1, 1, device=device) * (1 - self._exp_cfg.min_t) + self._exp_cfg.min_t
-            t *= self._exp_cfg.max_t
         noisy_batch['t'] = t[:, 0]
 
         if self._exp_cfg.batch_ot.enabled:
@@ -172,7 +170,7 @@ class FlowModule(LightningModule):
         num_batch, num_res = res_mask.shape[:2]
         gt_bb_atoms = all_atom.to_atom37(gt_trans_1, gt_rotmats_1)[:, :, :3] 
         batch_t = noisy_batch['t']
-        t_norm_scale = 1 - (1 - self._exp_cfg.min_sigma)*torch.min(
+        t_norm_scale = 1 - torch.min(
             batch_t[..., None], torch.tensor(training_cfg.t_normalize_clip))
         
         model_output = self.model(noisy_batch)
@@ -368,7 +366,7 @@ class FlowModule(LightningModule):
         prot_traj = [(trans_0, rots_0)]
         if num_timesteps is None:
             num_timesteps = self._sampling_cfg.num_timesteps
-        ts = torch.linspace(self._exp_cfg.min_t, self._exp_cfg.max_t, num_timesteps)
+        ts = torch.linspace(self._exp_cfg.min_t, 1.0, num_timesteps)
         if self._exp_cfg.rescale_time:
             ts = flow_utils.reschedule(ts)
         t_1 = ts[0]
