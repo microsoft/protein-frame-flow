@@ -1,7 +1,7 @@
 import torch
 from torch import nn
+from models.utils import get_index_embedding, get_time_embedding
 
-from models.utils import sinusoidal_encoding
 
 class NodeFeatureNet(nn.Module):
 
@@ -23,10 +23,9 @@ class NodeFeatureNet(nn.Module):
         b, num_res, device = mask.shape[0], mask.shape[1], timesteps.device
 
         # [b, n_res, c_pos_emb]
-        pos_emb = sinusoidal_encoding(
-            torch.arange(num_res, dtype=torch.float32).to(device)[None],
-            self._cfg.max_num_res,
-            self.c_pos_emb
+        pos = torch.arange(num_res, dtype=torch.float32).to(device)[None]
+        pos_emb = get_index_embedding(
+            pos, self.c_pos_emb, max_len=2056
         )
         pos_emb = pos_emb.repeat([b, 1, 1])
         pos_emb = pos_emb * mask.unsqueeze(-1)
@@ -35,14 +34,18 @@ class NodeFeatureNet(nn.Module):
         # timesteps are between 0 and 1. Convert to integers.
         input_feats = [pos_emb]
         if self._cfg.embed_t:
-            timesteps_int = torch.floor(
-                timesteps * self._cfg.timestep_int).to(device)
-            timestep_emb = sinusoidal_encoding(
-                timesteps_int.view(b, 1),
-                self._cfg.timestep_int,	
-                self.c_timestep_emb
-            )
-            timestep_emb = timestep_emb.repeat(1, num_res, 1)
+            # timesteps_int = torch.floor(
+            #     timesteps * self._cfg.timestep_int).to(device)
+            timestep_emb = get_time_embedding(
+                timesteps[:, 0],
+                self.c_timestep_emb,
+                max_positions=2056
+            )[:, None, :].repeat(1, num_res, 1)
+            # timestep_emb = sinusoidal_encoding(
+            #     timesteps_int.view(b, 1),
+            #     self._cfg.timestep_int,	
+            #     self.c_timestep_emb
+            # )
             timestep_emb = timestep_emb * mask.unsqueeze(-1)
             input_feats.append(timestep_emb)
         return self.linear(torch.cat(input_feats, dim=-1))

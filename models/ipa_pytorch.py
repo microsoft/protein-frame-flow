@@ -505,14 +505,14 @@ class TorsionAngles(nn.Module):
         return unnormalized_s, normalized_s
 
 
-class ScoreLayer(nn.Module):
-    def __init__(self, dim_in, dim_hid, dim_out):
-        super(ScoreLayer, self).__init__()
+class RotationVFLayer(nn.Module):
+    def __init__(self, dim):
+        super(RotationVFLayer, self).__init__()
 
-        self.linear_1 = Linear(dim_in, dim_hid, init="relu")
-        self.linear_2 = Linear(dim_hid, dim_hid)
-        self.linear_3 = Linear(dim_hid, dim_out, init="final")
-
+        self.linear_1 = Linear(dim, dim, init="relu")
+        self.linear_2 = Linear(dim, dim, init="relu")
+        self.linear_3 = Linear(dim, dim)
+        self.final_linear = Linear(dim, 6, init="final")
         self.relu = nn.ReLU()
 
     def forward(self, s):
@@ -520,9 +520,10 @@ class ScoreLayer(nn.Module):
         s = self.linear_1(s)
         s = self.relu(s)
         s = self.linear_2(s)
-        s = s + s_initial
+        s = self.relu(s)
         s = self.linear_3(s)
-        return s
+        s = s + s_initial
+        return self.final_linear(s)
 
 
 class BackboneUpdate(nn.Module):

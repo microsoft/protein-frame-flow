@@ -174,9 +174,17 @@ class Sampler:
         # Set-up directories to write results to
         output_base_dir = self._infer_cfg.output_dir
         ckpt_name = '_'.join(ckpt_path.replace('.ckpt', '').split('/')[-3:])
+        mpnn_name = 'ca_mpnn' if cfg.inference.use_ca_pmpnn else 'frame_mpnn'
+        interpolant_name = 'sde' if cfg.inference.do_sde else 'ode'
+        vf_scale = 'temp_1' if cfg.inference.vf_scale is None else cfg.inference.vf_scale
         if self._infer_cfg.name is None:
             self._output_dir = os.path.join(
-                output_base_dir, ckpt_name, f'ts_{self._infer_cfg.num_timesteps}')
+                output_base_dir, ckpt_name,
+                f'ts_{self._infer_cfg.num_timesteps}',
+                mpnn_name,
+                vf_scale,
+                interpolant_name,
+            )
         else:
             self._output_dir = os.path.join(output_base_dir, self._infer_cfg.name) 
         os.makedirs(self._output_dir, exist_ok=True)
@@ -192,11 +200,15 @@ class Sampler:
         self._folding_model = self._folding_model.to(self.device)
 
         # Set-up wandb
+        if self._infer_cfg.name is None:
+            wandb_name = f'{ckpt_name}_{interpolant_name}_ts_{self._infer_cfg.num_timesteps}_{vf_scale}'
+        else:
+            wandb_name = self._infer_cfg.name
         if self._infer_cfg.wandb_enable:
             cfg_dict = OmegaConf.to_container(cfg, resolve=True)
             wandb.init(
                 config=dict(eu.flatten_dict(cfg_dict)),
-                name=ckpt_name,
+                name=wandb_name,
                 **self._infer_cfg.wandb
             )
 
@@ -217,15 +229,18 @@ class Sampler:
                     log.info(f'Skipping {sample_dir}')
                     continue
 
+            log.info(f'On sample {sample_i}')
+
             # Run sampling
             os.makedirs(sample_dir, exist_ok=True)
             init_feats = _create_template_feats(sample_length, self.device)
-            atom37_traj, model_traj = self._model.run_sampling(
+            atom37_traj, model_traj, _ = self._model.run_sampling(
                 batch=(init_feats, 'sample'),
                 return_traj=True,
                 return_model_outputs=True,
                 num_timesteps=self._infer_cfg.num_timesteps,
                 do_sde=self._infer_cfg.do_sde,
+                vf_scale=self._infer_cfg.vf_scale
             )
             traj_paths = self.save_traj(
                 np.flip(du.to_numpy(torch.concat(atom37_traj, dim=0)), axis=0),

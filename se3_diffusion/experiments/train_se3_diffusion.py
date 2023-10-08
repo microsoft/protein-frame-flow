@@ -83,7 +83,7 @@ class Experiment:
         # 2. silent rest of logger when use ddp mode
         # 3. silent wandb logger
         # 4. unset checkpoint path if rank is not 0 to avoid saving checkpoints and evaluation
-        if self._use_ddp :
+        if self._use_ddp:
             torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
             dist.init_process_group(backend='nccl')
             self.ddp_info = eu.get_ddp_info()
@@ -119,8 +119,8 @@ class Experiment:
             conf.experiment.warm_start = ckpt_dir
 
             # For compatibility with older checkpoints.
-            if 'optimizer' in ckpt_pkl:
-                ckpt_opt = ckpt_pkl['optimizer']
+            # if 'optimizer' in ckpt_pkl:
+                # ckpt_opt = ckpt_pkl['optimizer']
             if 'epoch' in ckpt_pkl:
                 self.trained_epochs = ckpt_pkl['epoch']
             if 'step' in ckpt_pkl:
@@ -558,12 +558,14 @@ class Experiment:
         pred_trans = pred_rigids.get_trans()
         pred_rotmats = pred_rigids.get_rots().get_rot_mats()
         pred_rotvecs = flow_so3_utils.rotmat_to_rotvec(pred_rotmats)
+        pred_rot_vf = model_out['rot_vf'] * diffuse_mask[..., None]
 
         # Translation x0 loss
         gt_trans_x0 = gt_trans * self._exp_conf.coordinate_scaling
         pred_trans_x0 = pred_trans * self._exp_conf.coordinate_scaling
+        t_norm_scale = torch.min(batch['t'][..., None, None], torch.tensor(0.95))
         trans_loss = torch.sum(
-            (gt_trans_x0 - pred_trans_x0)**2 * loss_mask[..., None],
+            (gt_trans_x0 - pred_trans_x0)**2*loss_mask[..., None], #/t_norm_scale)**2 * loss_mask[..., None],
             dim=(-1, -2)
         ) / (loss_mask.sum(dim=-1) + 1e-10)
         trans_loss *= self._exp_conf.trans_loss_weight
@@ -601,7 +603,8 @@ class Experiment:
             rot_loss *= self._exp_conf.rot_loss_weight
             rot_loss *= batch['t'] > self._exp_conf.rot_loss_t_threshold
         elif self._exp_conf.rot_loss == 'vf':
-            rot_mse = (gt_rotvecs - pred_rotvecs)**2 * loss_mask[..., None]
+            rot_mse = (gt_rot_vf - pred_rot_vf)**2 * loss_mask[..., None]
+            rot_mse = rot_mse/t_norm_scale 
             rot_loss = torch.sum(
                 rot_mse, dim=(-1, -2)
             ) / (loss_mask.sum(dim=-1) + 1e-10)
@@ -729,6 +732,7 @@ class Experiment:
             aux_traj=False,
             self_condition=True,
             noise_scale=1.0,
+            use_sde=True,
         ):
         """Inference function.
 
@@ -781,6 +785,7 @@ class Experiment:
                         dt=dt,
                         center=center,
                         noise_scale=noise_scale,
+                        use_sde=use_sde,
                     )
 
                     # Flow matching
@@ -793,14 +798,15 @@ class Experiment:
                         rots_pred = pred_rigids.get_rots().get_rot_mats()
                         trans_pred = pred_rigids.get_trans()
 
-                        sigma_t = r3_flow_utils.sigma_t(t)
-                        prev_sigma_t = r3_flow_utils.sigma_t(prev_t)
-                        dt = prev_sigma_t - sigma_t
+                        # sigma_t = r3_flow_utils.sigma_t(t)
+                        # prev_sigma_t = r3_flow_utils.sigma_t(prev_t)
+                        dt = prev_t - t
                         prev_t = t
-                        trans_vf = (trans_pred - prev_trans_t) / sigma_t
-                        trans_t = prev_trans_t + trans_vf * dt
+                        # trans_vf = (trans_pred - prev_trans_t) / t
+                        # trans_t = prev_trans_t + trans_vf * dt
+                        trans_t = rigids_t.get_trans()
                         rots_t = flow_so3_utils.geodesic_t(
-                            dt / sigma_t, rots_pred, prev_rots_t)
+                            dt / t, rots_pred, prev_rots_t)
 
                         rigids_t = ru.Rigid(
                             rots=ru.Rotation(rot_mats=rots_t.to(trans_t.device)), trans=trans_t)

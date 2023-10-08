@@ -54,25 +54,30 @@ class FlowModel(nn.Module):
                     edge_embed_out=self._model_conf.edge_embed_size,
                 )
         if self._model_conf.predict_rot_vf:
-            self._rot_vf_head = ipa_pytorch.BackboneUpdate(
-                self._model_conf.node_embed_size, False)
+            self._rot_vf_head = ipa_pytorch.RotationVFLayer(
+                self._model_conf.node_embed_size,
+                self._model_conf.node_embed_size
+            )
 
     def forward(self, input_feats):
         node_mask = input_feats['res_mask']
         edge_mask = node_mask[:, None] * node_mask[:, :, None]
         continuous_t = input_feats['t']
+        trans_t = input_feats['trans_t']
+        rotmats_t = input_feats['rotmats_t']
 
         # Initialize node and edge embeddings
         init_node_embed = self.node_feature_net(
             continuous_t, node_mask)
+        if 'trans_sc' not in input_feats:
+            trans_sc = torch.zeros_like(trans_t)
+        else:
+            trans_sc = input_feats['trans_sc']
         init_edge_embed = self.edge_feature_net(
-            init_node_embed, input_feats['trans_t'], edge_mask)
-
+            init_node_embed, trans_t, trans_sc, edge_mask)
 
         # Initial rigids
-        trans_t = input_feats['trans_t']
-        rotmats_t = input_feats['rotmats_t']
-        curr_rigids = du.create_rigid(rotmats_t, trans_t)
+        curr_rigids = du.create_rigid(rotmats_t, trans_t,)
 
         # Main trunk
         curr_rigids = self.rigids_ang_to_nm(curr_rigids)

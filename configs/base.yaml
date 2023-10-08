@@ -13,12 +13,12 @@ data:
     prefetch_factor: 10
   sampler:
     max_batch_size: 100
-    max_num_res_squared: 800_000
+    max_num_res_squared: 500_000
     use_batch_repeats: False
     num_batches: null
 
 model:
-  architecture: framediff
+  architecture: flow
 
   # New architecture
   flower:
@@ -89,7 +89,9 @@ model:
       relpos_k: 64
       use_rbf: True
       num_rbf: 32
-      symmetric: ${model.flow.symmetric}
+      feat_dim: 64
+      num_bins: 22
+      self_condition: True
     ipa:
       c_s: ${model.flow.node_embed_size}
       c_z: ${model.flow.edge_embed_size}
@@ -99,7 +101,7 @@ model:
       no_v_points: 12
       seq_tfmr_num_heads: 4
       seq_tfmr_num_layers: 2
-      num_blocks: 4
+      num_blocks: 6
 
   # GENIE architecture
   genie:
@@ -170,6 +172,9 @@ experiment:
   min_sigma: 1e-2
   min_t: 1e-3
   max_t: 0.98
+  so3_prior: uniform
+  so3_schedule: exp
+  self_condition: ${model.flow.edge_features.self_condition}
   batch_ot:
     enabled: True
     cost: kabsch
@@ -185,9 +190,9 @@ experiment:
     superimpose: null
     translation_loss_weight: 2.0
     t_normalize_clip: 0.9
-    rotation_loss_weights: 0.5
+    rotation_loss_weights: 1.0
     rotation_loss_t_upper: 1.0
-    aux_loss_weight: 0.0
+    aux_loss_weight: 1.0
     aux_loss_t_pass: 0.25
   wandb:
     name: baseline
@@ -202,15 +207,16 @@ experiment:
     max_epochs: 1000
     accelerator: gpu
     log_every_n_steps: 1
-    check_val_every_n_epoch: 1
     deterministic: False
     strategy: ddp
-    accumulate_grad_batches: 4
+    check_val_every_n_epoch: 2
+    accumulate_grad_batches: 2
     num_sanity_val_steps: -1
   sampling:
     num_timesteps: 100
     prior_scale: 1.0
     do_sde: False
+    vf_scaling: reverse_time
   checkpointer:
     dirpath: ckpt/${experiment.wandb.project}/${experiment.wandb.name}/${now:%Y-%m-%d}_${now:%H-%M-%S}
     save_last: True

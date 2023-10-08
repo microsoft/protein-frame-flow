@@ -649,15 +649,15 @@ class IpaScore(nn.Module):
                     node_embed, edge_embed)
                 edge_embed *= edge_mask[..., None]
         rots_t = init_rigids.get_rots()
-        pred_rots_1 = curr_rigids.get_rots()
+        pred_rots_0 = curr_rigids.get_rots()
         rot_score = self.diffuser.calc_rot_score(
             rots_t,
-            pred_rots_1,
+            pred_rots_0,
             input_feats['t']
         ) * node_mask[..., None]
 
         rot_vf = flow_so3_utils.calc_rot_vf(
-            rots_t.get_rot_mats(), pred_rots_1.get_rot_mats()) * node_mask[..., None]
+            rots_t.get_rot_mats(), pred_rots_0.get_rot_mats()) * node_mask[..., None]
 
         curr_rigids = self.unscale_rigids(curr_rigids)
         trans_score = self.diffuser.calc_trans_score(

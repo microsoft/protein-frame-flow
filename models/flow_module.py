@@ -8,7 +8,6 @@ import wandb
 import numpy as np
 import copy
 import pandas as pd
-import tree
 import logging
 from pytorch_lightning import LightningModule
 from models.vf_model import VFModel
@@ -24,8 +23,6 @@ from data import so3_utils
 from data import flow_utils
 from pytorch_lightning.loggers.wandb import WandbLogger
 from scipy.optimize import linear_sum_assignment
-from openfold.utils import rigid_utils as ru
-from data import r3_diffuser
 
 CA_IDX = metrics.CA_IDX
 
@@ -57,6 +54,9 @@ class FlowModule(LightningModule):
         self.validation_epoch_metrics = []
         self.validation_epoch_samples = []
         self.save_hyperparameters()
+        if self._exp_cfg.so3_prior == 'igso3':
+            sigma_grid = torch.linspace(0.1, 1.5, 1000)
+            self._igso3 = so3_utils.SampleIGSO3(1000, sigma_grid)
         
     def on_train_start(self):
         self._epoch_start_time = time.time()
@@ -143,14 +143,32 @@ class FlowModule(LightningModule):
             noisy_batch['trans_t'] = gt_trans_1
 
         if self._exp_cfg.noise_rots:
-            rotmats_0 = torch.tensor(
-                Rotation.random(num_batch*num_res).as_matrix(),
-                device=device,
-                dtype=torch.float32
-            )
-            rotmats_0 = rotmats_0.reshape(num_batch, num_res, 3, 3)
+            if self._exp_cfg.so3_prior == 'uniform':
+                rotmats_0 = torch.tensor(
+                    Rotation.random(num_batch*num_res).as_matrix(),
+                    device=device,
+                    dtype=torch.float32
+                ).reshape(num_batch, num_res, 3, 3)
+            elif self._exp_cfg.so3_prior == 'igso3':
+                noisy_rotmats = self._igso3.sample(
+                    torch.tensor([1.5], device=device),
+                    num_batch*num_res
+                ).to(device)
+                noisy_rotmats = noisy_rotmats.reshape(num_batch, num_res, 3, 3)
+                rotmats_0 = torch.einsum(
+                    "...ij,...jk->...ik", gt_rotmats_1, noisy_rotmats)
+
             noisy_batch['rotmats_0'] = rotmats_0
-            rotmats_t = so3_utils.geodesic_t(t, gt_rotmats_1, rotmats_0)
+            if self._exp_cfg.so3_schedule == 'exp':
+                so3_t = 1 - torch.exp(-t*10)
+            elif self._exp_cfg.so3_schedule == 'exp_5':
+                so3_t = 1 - torch.exp(-t*5)
+            elif self._exp_cfg.so3_schedule == 'linear':
+                so3_t = t
+            else:
+                raise ValueError(f'Invalid schedule: {self._exp_cfg.so3_schedule}')
+
+            rotmats_t = so3_utils.geodesic_t(so3_t, gt_rotmats_1, rotmats_0)
             rotmats_t = (
                 rotmats_t * res_mask[..., None, None]
                 + torch.eye(3, device=device)[None, None] * (1 - res_mask[..., None, None])
@@ -252,6 +270,7 @@ class FlowModule(LightningModule):
         se3_vf_loss = trans_loss + rots_vf_loss
         auxiliary_loss = (bb_atom_loss + dist_mat_loss) * (batch_t[:, 0] > training_cfg.aux_loss_t_pass)
         auxiliary_loss *= self._exp_cfg.training.aux_loss_weight
+        se3_vf_loss += auxiliary_loss
         return noisy_batch, {
             "bb_atom_loss": bb_atom_loss,
             "trans_loss": trans_loss,
@@ -263,8 +282,12 @@ class FlowModule(LightningModule):
             "se3_vf_loss": se3_vf_loss
         }
 
-    def validation_step(self, batch: Any, _: int):
-        samples = self.run_sampling(batch, return_traj=False)[0].numpy()
+    def validation_step(self, batch: Any, batch_idx: int):
+        samples = self.run_sampling(
+            batch,
+            return_traj=False,
+            vf_scale=self._sampling_cfg.vf_scaling,
+        )[0].numpy()
         num_batch, num_res = samples.shape[:2]
         
         batch_metrics = []
@@ -276,7 +299,7 @@ class FlowModule(LightningModule):
                 final_pos,
                 os.path.join(
                     self._sample_write_dir,
-                    f'sample_{i}_len_{num_res}.pdb'),
+                    f'sample_{i}_idx_{batch_idx}_len_{num_res}.pdb'),
                 no_indexing=True
             )
             if isinstance(self.logger, WandbLogger):
@@ -289,7 +312,6 @@ class FlowModule(LightningModule):
                 batch_metrics.append((mdtraj_metrics | ca_ca_metrics))
             except Exception:
                 continue
-
         batch_metrics = pd.DataFrame(batch_metrics)
         self.validation_epoch_metrics.append(batch_metrics)
         
@@ -316,6 +338,7 @@ class FlowModule(LightningModule):
     def run_sampling(
             self,
             batch: Any,
+            vf_scale,
             return_traj=False,
             return_model_outputs=False,
             num_timesteps=None,
@@ -326,18 +349,24 @@ class FlowModule(LightningModule):
 
         if not do_sde:
             return self.run_ode_sampling(
-                batch, return_traj, return_model_outputs, num_timesteps)
+                batch,
+                return_traj,
+                return_model_outputs,
+                num_timesteps,
+                vf_scale
+            )
         else:
             return self.run_sde_sampling(
                 batch, return_traj, return_model_outputs, num_timesteps)
 
     @torch.no_grad()
     def run_ode_sampling(
-        self,
-        batch: Any,
-        return_traj,
-        return_model_outputs,
-        num_timesteps,
+            self,
+            batch: Any,
+            return_traj,
+            return_model_outputs,
+            num_timesteps,
+            vf_scale,
         ):
 
         batch, _ = batch
@@ -359,6 +388,7 @@ class FlowModule(LightningModule):
         if self._exp_cfg.rescale_time:
             ts = flow_utils.reschedule(ts)
         t_1 = ts[0]
+
         model_traj = []
         for t_2 in ts[1:]:
             d_t = t_2 - t_1
@@ -379,29 +409,71 @@ class FlowModule(LightningModule):
             pred_rots_1 = model_out['pred_rots']
             pred_rotmats_1 = pred_rots_1.get_rot_mats()
             pred_rots_vf = model_out['pred_rots_vf']
+            if self._exp_cfg.self_condition:
+                batch['trans_sc'] = pred_trans_1
 
             model_traj.append(
                 (pred_trans_1.detach().cpu(), pred_rotmats_1.detach().cpu())
             )
             trans_vf = (pred_trans_1 - trans_t_1) / (1 - t_1)
             trans_t_2 = trans_t_1 + trans_vf * d_t
-            
+            if vf_scale == 'forward_time':
+                temp_scale = 10.0 * t_1
+            elif vf_scale == 'reverse_time':
+                temp_scale = 10.0 * (1 - t_1)
+            elif vf_scale == 'reverse_time_5':
+                temp_scale = 5.0 * (1 - t_1)
+            elif vf_scale == 'reverse_time_100':
+                temp_scale = 5.0 * (1 - t_1)
+            elif vf_scale == 'constant':
+                temp_scale = 10.0
+            elif vf_scale is None:
+                temp_scale = 1.0
+            else:
+                raise ValueError(f'Unknown scaling {vf_scale}')
+
             if self._model_cfg.predict_rot_vf:
                 rots_t_2 = so3_utils.geodesic_t(
-                    d_t / (1 - t_1), pred_rotmats_1, rots_t_1, rot_vf=pred_rots_vf)
+                    # self._sampling_cfg.vf_scaling 
+                    temp_scale * d_t / (1 - t_1), pred_rotmats_1, rots_t_1, rot_vf=pred_rots_vf)
             else:
                 rots_t_2 = so3_utils.geodesic_t(
-                    d_t / (1 - t_1), pred_rotmats_1, rots_t_1) 
+                    # self._sampling_cfg.vf_scaling
+                     temp_scale * d_t / (1 - t_1), pred_rotmats_1, rots_t_1) 
             t_1 = t_2
             if return_traj:
                 prot_traj.append((trans_t_2, rots_t_2))
             else:
                 prot_traj[-1] = (trans_t_2, rots_t_2)
 
+        # Final step
+        trans_t_1, rots_t_1 = prot_traj[-1]
+        with torch.no_grad():
+            if self._exp_cfg.noise_trans:
+                batch['trans_t'] = trans_t_1
+            else:
+                batch['trans_t'] = batch['trans_1']
+            if self._exp_cfg.noise_rots:
+                batch['rotmats_t'] = rots_t_1
+            else:
+                batch['rotmats_t'] = batch['rotmats_1']
+            batch['t'] = torch.ones((num_batch, 1)).to(device) * t_1
+            model_out = self.forward(batch)
+        final_trans_1 = model_out['pred_trans']
+        final_rots_1 = model_out['pred_rots']
+        final_rotmats_1 = final_rots_1.get_rot_mats()
+        model_traj.append(
+            (final_trans_1.detach().cpu(), final_rotmats_1.detach().cpu())
+        )
+        if return_traj:
+            prot_traj.append((final_trans_1, final_rotmats_1))
+        else:
+            prot_traj[-1] = (final_trans_1, final_rotmats_1)
+
         atom37_traj = all_atom.transrot_to_atom37(prot_traj, res_mask)
         if return_model_outputs:
-            model_traj = all_atom.transrot_to_atom37(model_traj, res_mask)
-            return atom37_traj, model_traj
+            model_atom37_traj = all_atom.transrot_to_atom37(model_traj, res_mask)
+            return atom37_traj, model_atom37_traj, model_traj
         return atom37_traj
         
     @torch.no_grad()
@@ -452,10 +524,11 @@ class FlowModule(LightningModule):
                 batch['t'] = torch.ones((num_batch, 1)).to(device) * (1 - t_1)
 
                 model_out = self.forward(batch)
-
             pred_trans_1 = model_out['pred_trans']
             pred_rots_1 = model_out['pred_rots'].get_rot_mats()
             pred_rots_vf = model_out['pred_rots_vf']
+            if self._exp_cfg.self_condition:
+                batch['trans_sc'] = pred_trans_1
 
             model_traj.append(
                 (pred_trans_1.detach().cpu(), pred_rots_1.detach().cpu())
@@ -515,8 +588,8 @@ class FlowModule(LightningModule):
 
         atom37_traj = all_atom.transrot_to_atom37(prot_traj, res_mask)
         if return_model_outputs:
-            model_traj = all_atom.transrot_to_atom37(model_traj, res_mask)
-            return atom37_traj, model_traj
+            model_atom37_traj = all_atom.transrot_to_atom37(model_traj, res_mask)
+            return atom37_traj, model_atom37_traj, model_traj
         return atom37_traj
 
     def _log_scalar(self, key, value, on_step=True, on_epoch=False, prog_bar=True, batch_size=None, sync_dist=False, rank_zero_only=True):
@@ -539,11 +612,12 @@ class FlowModule(LightningModule):
     def training_step(self, batch: Any, stage: int):
         step_start_time = time.time()
         noisy_batch = self._corrupt_batch(batch)
-        self_correct = False
         if self._exp_cfg.training.self_correcting and random.random() < 0.25:
-            self_correct = True
             noisy_batch = self._self_correct(noisy_batch)
-        self._log_scalar('train/self_correct', int(self_correct), prog_bar=False)
+        if self._exp_cfg.self_condition and random.random() > 0.5:
+            with torch.no_grad():
+                model_sc = self.model(noisy_batch)
+                noisy_batch['trans_sc'] = model_sc['pred_trans']
         _, batch_losses = self.model_step(noisy_batch)
         num_batch = batch_losses['bb_atom_loss'].shape[0]
         total_losses = {
