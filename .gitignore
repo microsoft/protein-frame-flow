@@ -1,6 +1,7 @@
 wandb/
 wandb*.json
 **/*.ckpt
+**/*.pth
 **/*.pdb
 preprocessed/
 ckpt/

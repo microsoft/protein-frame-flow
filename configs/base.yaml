@@ -18,57 +18,6 @@ data:
     num_batches: null
 
 model:
-  architecture: flow
-
-  # New architecture
-  flower:
-    node_embed_size: 128
-    edge_embed_size: 128
-    symmetric: True
-    node_features:
-      c_s: ${model.flower.node_embed_size}
-      c_pos_emb: 128
-      c_timestep_emb: 128
-      max_num_res: 2000
-      timestep_int: 1000
-    edge_features:
-      single_bias_transition_n: 2
-      c_s: ${model.flower.node_embed_size}
-      c_p: ${model.flower.edge_embed_size}
-      relpos_k: 64
-      use_rbf: False
-      num_rbf: 32
-      symmetric: ${model.flower.symmetric}
-    potential_network:
-      num_blocks: 4
-      dropout: 0.0
-      weight_share: False
-      edge_update:
-        c_s: ${model.flower.node_embed_size}
-        c_p: ${model.flower.edge_embed_size}
-        symmetric_update: ${model.flower.symmetric}
-        num_rbf: 32
-        c_hidden_mul: 128
-        dropout: ${model.flower.potential_network.dropout}
-        single_bias: True
-        pair_transition_n: 2
-      structure_update:
-        use_rot_updates: True
-        num_transition_layers: 1 
-        dropout: ${model.flower.potential_network.dropout}
-        seq_tfmr:
-          enable: False
-          num_heads: 4
-          num_layers: 2
-        ipa:
-          c_s: ${model.flower.node_embed_size}
-          c_z: ${model.flower.edge_embed_size}
-          c_hidden: 16
-          no_heads: 12
-          no_qk_points: 4
-          no_v_points: 8
-    predict_rot_vf: False
-
   flow:
     use_rot_updates: True
     predict_rot_vf: False
@@ -103,62 +52,6 @@ model:
       seq_tfmr_num_layers: 2
       num_blocks: 6
 
-  # GENIE architecture
-  genie:
-    node_embed_size: 128
-    edge_embed_size: 128
-    node_features:
-      c_s: ${model.flower.node_embed_size}
-      c_pos_emb: 128
-      c_timestep_emb: 128
-      max_num_res: 2000
-      timestep_int: 1000
-    edge_features:
-      c_s: ${model.flower.node_embed_size}
-      c_p: ${model.flower.edge_embed_size}
-      relpos_k: 32
-    pair_network:
-      c_p: ${model.flower.edge_embed_size}
-      include_mul_update: True
-      inlude_tri_att: False
-      c_hidden_mul: 128
-      pair_transition_n: 4
-      n_pair_transform_layer: 5
-    structure_network:
-      n_structure_layer: 5
-      dropout: 0.0
-      n_structure_transition_layer: 1
-      structure_transition_dropout: 0.0
-      ipa:
-        c_s: ${model.flower.node_embed_size}
-        c_z: ${model.flower.edge_embed_size}
-        c_hidden: 16
-        no_heads: 12
-        no_qk_points: 4
-        no_v_points: 8
-
-  framediff:
-    t_embed_size: 64
-    embed_time: True
-    index_embed_size: 64
-    node_embed_size: 256
-    edge_embed_size: 128
-    dropout: 0.0
-    use_rot_updates: True
-    predict_rot_vf: False
-    ipa:
-      c_s: ${model.framediff.node_embed_size}
-      c_z: ${model.framediff.edge_embed_size}
-      c_hidden: 128
-      use_skip: True
-      c_skip: 64
-      no_heads: 8
-      no_qk_points: 8
-      no_v_points: 12
-      seq_tfmr_num_heads: 4
-      seq_tfmr_num_layers: 2
-      num_blocks: 4
-
 experiment:
   debug: False
   seed: 123
@@ -171,7 +64,6 @@ experiment:
   use_swa: False
   min_sigma: 1e-2
   min_t: 1e-3
-  max_t: 0.98
   so3_prior: uniform
   so3_schedule: exp
   self_condition: ${model.flow.edge_features.self_condition}

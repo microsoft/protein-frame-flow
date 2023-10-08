@@ -17,10 +17,10 @@ inference:
   use_ca_pmpnn: False
 
   # Number of steps.
-  num_timesteps: 10
+  num_timesteps: 100
 
   do_sde: False
-  vf_scale: reverse_time
+  vf_scale: reverse_time_5
 
   # Directory of software, weights, and outputs.
   pt_hub_dir: ./.cache/torch/

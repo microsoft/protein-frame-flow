@@ -1,5 +1,4 @@
 from typing import Any
-
 import torch
 import time
 import os
@@ -10,9 +9,6 @@ import copy
 import pandas as pd
 import logging
 from pytorch_lightning import LightningModule
-from models.vf_model import VFModel
-from models.genie_model import Genie
-from models.flower_model import Flower
 from models.flow_model import FlowModel
 from data import all_atom 
 from data import utils as du
@@ -34,21 +30,8 @@ class FlowModule(LightningModule):
         self._print_logger = logging.getLogger(__name__)
         self._exp_cfg = experiment_cfg
         self._sampling_cfg = experiment_cfg.sampling
-        
-        if model_cfg.architecture == 'genie':
-            self._model_cfg = model_cfg.genie
-            self.model = Genie(model_cfg.genie)
-        elif model_cfg.architecture == 'framediff':
-            self._model_cfg = model_cfg.framediff
-            self.model = VFModel(model_cfg.framediff)
-        elif model_cfg.architecture == 'flower':
-            self._model_cfg = model_cfg.flower
-            self.model = Flower(model_cfg.flower)
-        elif model_cfg.architecture == 'flow':
-            self._model_cfg = model_cfg.flow
-            self.model = FlowModel(model_cfg.flow)            
-        else:
-            raise NotImplementedError()
+        self._model_cfg = model_cfg.flow
+        self.model = FlowModel(model_cfg.flow)            
         self._sample_write_dir = self._exp_cfg.checkpointer.dirpath
         os.makedirs(self._sample_write_dir, exist_ok=True)
         self.validation_epoch_metrics = []
@@ -126,7 +109,6 @@ class FlowModule(LightningModule):
         num_batch, num_res, _ = gt_trans_1.shape
         if t is None:
             t = torch.rand(num_batch, 1, 1, device=device) * (1 - self._exp_cfg.min_t) + self._exp_cfg.min_t
-            t *= self._exp_cfg.max_t
         noisy_batch['t'] = t[:, 0]
 
         if self._exp_cfg.batch_ot.enabled:
@@ -188,7 +170,7 @@ class FlowModule(LightningModule):
         num_batch, num_res = res_mask.shape[:2]
         gt_bb_atoms = all_atom.to_atom37(gt_trans_1, gt_rotmats_1)[:, :, :3] 
         batch_t = noisy_batch['t']
-        t_norm_scale = 1 - (1 - self._exp_cfg.min_sigma)*torch.min(
+        t_norm_scale = 1 - torch.min(
             batch_t[..., None], torch.tensor(training_cfg.t_normalize_clip))
         
         model_output = self.model(noisy_batch)
@@ -384,7 +366,7 @@ class FlowModule(LightningModule):
         prot_traj = [(trans_0, rots_0)]
         if num_timesteps is None:
             num_timesteps = self._sampling_cfg.num_timesteps
-        ts = torch.linspace(self._exp_cfg.min_t, self._exp_cfg.max_t, num_timesteps)
+        ts = torch.linspace(self._exp_cfg.min_t, 1.0, num_timesteps)
         if self._exp_cfg.rescale_time:
             ts = flow_utils.reschedule(ts)
         t_1 = ts[0]
