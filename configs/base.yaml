@@ -3,7 +3,7 @@ data:
   dataset:
     max_num_res: 128
     min_num_res: 0
-    subset: 1
+    subset: null
     samples_per_eval_length: 5
     num_eval_lengths: 8
     min_eval_length: 500
@@ -13,7 +13,7 @@ data:
     prefetch_factor: 10
   sampler:
     max_batch_size: 100
-    max_num_res_squared: 800_000
+    max_num_res_squared: 500_000
     use_batch_repeats: False
     num_batches: null
 
@@ -101,7 +101,7 @@ model:
       no_v_points: 12
       seq_tfmr_num_heads: 4
       seq_tfmr_num_layers: 2
-      num_blocks: 4
+      num_blocks: 6
 
   # GENIE architecture
   genie:
@@ -191,7 +191,7 @@ experiment:
     t_normalize_clip: 0.9
     rotation_loss_weights: 1.0
     rotation_loss_t_upper: 1.0
-    aux_loss_weight: 0.0
+    aux_loss_weight: 1.0
     aux_loss_t_pass: 0.25
   wandb:
     name: baseline
@@ -208,13 +208,14 @@ experiment:
     log_every_n_steps: 1
     deterministic: False
     strategy: ddp
-    check_val_every_n_epoch: 5
-    accumulate_grad_batches: 4
+    check_val_every_n_epoch: 2
+    accumulate_grad_batches: 2
     num_sanity_val_steps: -1
   sampling:
     num_timesteps: 100
     prior_scale: 1.0
     do_sde: False
+    vf_scaling: forward_time
   checkpointer:
     dirpath: ckpt/${experiment.wandb.project}/${experiment.wandb.name}/${now:%Y-%m-%d}_${now:%H-%M-%S}
     save_last: True

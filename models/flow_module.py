@@ -274,7 +274,11 @@ class FlowModule(LightningModule):
         }
 
     def validation_step(self, batch: Any, batch_idx: int):
-        samples = self.run_sampling(batch, return_traj=False)[0].numpy()
+        samples = self.run_sampling(
+            batch,
+            return_traj=False,
+            vf_scale=self._sampling_cfg.vf_scaling,
+        )[0].numpy()
         num_batch, num_res = samples.shape[:2]
         
         batch_metrics = []
@@ -325,6 +329,7 @@ class FlowModule(LightningModule):
     def run_sampling(
             self,
             batch: Any,
+            vf_scale,
             return_traj=False,
             return_model_outputs=False,
             num_timesteps=None,
@@ -335,18 +340,24 @@ class FlowModule(LightningModule):
 
         if not do_sde:
             return self.run_ode_sampling(
-                batch, return_traj, return_model_outputs, num_timesteps)
+                batch,
+                return_traj,
+                return_model_outputs,
+                num_timesteps,
+                vf_scale
+            )
         else:
             return self.run_sde_sampling(
                 batch, return_traj, return_model_outputs, num_timesteps)
 
     @torch.no_grad()
     def run_ode_sampling(
-        self,
-        batch: Any,
-        return_traj,
-        return_model_outputs,
-        num_timesteps,
+            self,
+            batch: Any,
+            return_traj,
+            return_model_outputs,
+            num_timesteps,
+            vf_scale,
         ):
 
         batch, _ = batch
@@ -397,13 +408,25 @@ class FlowModule(LightningModule):
             )
             trans_vf = (pred_trans_1 - trans_t_1) / (1 - t_1)
             trans_t_2 = trans_t_1 + trans_vf * d_t
-            
+            if vf_scale == 'forward_time':
+                temp_scale = 10.0 * t_1
+            elif vf_scale == 'reverse_time':
+                temp_scale = 10.0 * (1 - t_1)
+            elif vf_scale == 'constant':
+                temp_scale = 10.0
+            elif vf_scale is None:
+                temp_scale = 1.0
+            else:
+                raise ValueError(f'Unknown scaling {vf_scale}')
+
             if self._model_cfg.predict_rot_vf:
                 rots_t_2 = so3_utils.geodesic_t(
-                    d_t / (1 - t_1), pred_rotmats_1, rots_t_1, rot_vf=pred_rots_vf)
+                    # self._sampling_cfg.vf_scaling 
+                    temp_scale * d_t / (1 - t_1), pred_rotmats_1, rots_t_1, rot_vf=pred_rots_vf)
             else:
                 rots_t_2 = so3_utils.geodesic_t(
-                    d_t / (1 - t_1), pred_rotmats_1, rots_t_1) 
+                    # self._sampling_cfg.vf_scaling
+                     temp_scale * d_t / (1 - t_1), pred_rotmats_1, rots_t_1) 
             t_1 = t_2
             if return_traj:
                 prot_traj.append((trans_t_2, rots_t_2))

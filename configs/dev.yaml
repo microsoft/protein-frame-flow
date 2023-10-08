@@ -3,14 +3,17 @@ defaults:
   - _self_
 
 data:
+  dataset:
+    # max_num_res: 256
+    min_num_res: 0
   # loader:
   #   num_workers: 10
   #   prefetch_factor: 25
   sampler:
-    # max_num_res_squared: 500_000
+    max_num_res_squared: 500_000
     max_batch_size: 100
-    max_num_res_squared: 800_000
-    # use_batch_repeats: True
+    # max_num_res_squared: 800_000
+    use_batch_repeats: False
 
 # model:
 #   flow:
@@ -21,32 +24,20 @@ experiment:
   debug: False
   # so3_prior: uniform
   wandb:
-    name: warm_start_large_model_self_correct
+    name: no_constant_scaling
 
-  training:
-    # aux_loss_weight: 1.0
-    # aux_loss_t_pass: 0.5
-    self_correcting: True
+  # sampling:
+  #   vf_scaling: 1.0
 
-  trainer:
-    accumulate_grad_batches: 4
-    check_val_every_n_epoch: 2
+  # training:
+  #   aux_loss_weight: 1.0
+  #   aux_loss_t_pass: 0.25
 
-  warm_start: ./ckpt/se3-fm/large_model/2023-09-30_15-47-47/last.ckpt
-  # warm_start: ./ckpt/se3-fm/warm_start_self_cond_1/2023-09-30_19-03-53/last.ckpt
-  # warm_start: ./ckpt/se3-fm/warm_start_aux_loss/2023-09-30_19-24-08/last.ckpt
-  # warm_start: ./ckpt/se3-fm/warm_start_batch_repeats/2023-09-30_15-52-15/last.ckpt
-  # warm_start: ./ckpt/se3-fm/warm_start/2023-09-30_15-50-12/last.ckpt
-  # warm_start: ./ckpt/se3-fm/warm_start/2023-09-30_15-50-12/last.ckpt
-  # warm_start: ./ckpt/se3-fm/warm_start_self_condition/2023-09-29_14-34-20/last.ckpt
-  # warm_start: ./ckpt/se3-fm/large_model/2023-09-30_08-30-01/last.ckpt
-  # warm_start: ./ckpt/se3-fm/baseline/2023-09-28_19-24-06/last.ckpt
-  # warm_start: ./ckpt/se3-fm/hybrid_loss/2023-09-24_10-55-20/last.ckpt
-  # warm_start: ./ckpt/se3-fm/baseline_faster/2023-09-23_08-04-04/last.ckpt
-  # warm_start: ./ckpt/se3-fm/self_correcting/2023-09-20_22-38-33/last.ckpt
-  # warm_start: ./ckpt/se3-fm/self_correcting_faster/2023-09-23_08-26-01/last.ckpt
-  # warm_start: ./ckpt/se3-fm/baseline_self_correct/2023-09-21_20-16-25/last.ckpt
-  # warm_start: ./ckpt/se3-fm/no_time_embed/2023-09-22_12-22-37/last.ckpt
+  # trainer:
+  #   accumulate_grad_batches: 2
+  #   check_val_every_n_epoch: 2
+
+  # warm_start: ./ckpt/se3-fm/large_model/2023-09-30_15-47-47/epoch=244-step=241325.ckpt
 
   # trainer:
   #   accumulate_grad_batches: 4
