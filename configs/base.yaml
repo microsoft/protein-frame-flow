@@ -172,7 +172,8 @@ experiment:
   min_sigma: 1e-2
   min_t: 1e-3
   max_t: 0.98
-  so3_prior: igso3
+  so3_prior: uniform
+  so3_schedule: exp
   self_condition: ${model.flow.edge_features.self_condition}
   batch_ot:
     enabled: True
@@ -215,7 +216,7 @@ experiment:
     num_timesteps: 100
     prior_scale: 1.0
     do_sde: False
-    vf_scaling: forward_time
+    vf_scaling: reverse_time
   checkpointer:
     dirpath: ckpt/${experiment.wandb.project}/${experiment.wandb.name}/${now:%Y-%m-%d}_${now:%H-%M-%S}
     save_last: True

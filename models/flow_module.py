@@ -159,7 +159,16 @@ class FlowModule(LightningModule):
                     "...ij,...jk->...ik", gt_rotmats_1, noisy_rotmats)
 
             noisy_batch['rotmats_0'] = rotmats_0
-            rotmats_t = so3_utils.geodesic_t(t, gt_rotmats_1, rotmats_0)
+            if self._exp_cfg.so3_schedule == 'exp':
+                so3_t = 1 - torch.exp(-t*10)
+            elif self._exp_cfg.so3_schedule == 'exp_5':
+                so3_t = 1 - torch.exp(-t*5)
+            elif self._exp_cfg.so3_schedule == 'linear':
+                so3_t = t
+            else:
+                raise ValueError(f'Invalid schedule: {self._exp_cfg.so3_schedule}')
+
+            rotmats_t = so3_utils.geodesic_t(so3_t, gt_rotmats_1, rotmats_0)
             rotmats_t = (
                 rotmats_t * res_mask[..., None, None]
                 + torch.eye(3, device=device)[None, None] * (1 - res_mask[..., None, None])
@@ -412,6 +421,10 @@ class FlowModule(LightningModule):
                 temp_scale = 10.0 * t_1
             elif vf_scale == 'reverse_time':
                 temp_scale = 10.0 * (1 - t_1)
+            elif vf_scale == 'reverse_time_5':
+                temp_scale = 5.0 * (1 - t_1)
+            elif vf_scale == 'reverse_time_100':
+                temp_scale = 5.0 * (1 - t_1)
             elif vf_scale == 'constant':
                 temp_scale = 10.0
             elif vf_scale is None:

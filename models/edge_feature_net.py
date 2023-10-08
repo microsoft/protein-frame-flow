@@ -36,23 +36,6 @@ class EdgeFeatureNet(nn.Module):
         pos_emb = get_index_embedding(d, self._cfg.feat_dim, max_len=2056)
         return self.linear_relpos(pos_emb)
 
-        # [n_bin]
-        v = torch.arange(-self.relpos_k, self.relpos_k + 1, device=r.device)
-        
-        # [1, 1, 1, n_bin]
-        v_reshaped = v.view(*((1,) * len(d.shape) + (len(v),)))
-
-        # [b, n_res, n_res]
-        b = torch.argmin(torch.abs(d[:, :, :, None] - v_reshaped), dim=-1)
-
-        # [b, n_res, n_res, n_bin]
-        oh = nn.functional.one_hot(b, num_classes=len(v)).float()
-
-        # [b, n_res, n_res, c_p]
-        p = self.linear_relpos(oh)
-
-        return p
-
     def _cross_concat(self, feats_1d, num_batch, num_res):
         return torch.cat([
             torch.tile(feats_1d[:, :, None, :], (1, 1, num_res, 1)),
