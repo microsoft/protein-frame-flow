@@ -3,41 +3,52 @@ defaults:
   - _self_
 
 data:
-  dataset:
+  # dataset:
     # max_num_res: 256
-    min_num_res: 0
+    # min_num_res: 0
   # loader:
   #   num_workers: 10
   #   prefetch_factor: 25
   sampler:
-    max_num_res_squared: 500_000
-    max_batch_size: 100
-    # max_num_res_squared: 800_000
-    use_batch_repeats: False
+    # max_num_res_squared: 500_000
+    max_batch_size: 128
+    max_num_res_squared: 800_000
+    # use_batch_repeats: False
 
-# model:
-#   flow:
-#     ipa:
-#       num_blocks: 6
+model:
+  flow:
+    ipa:
+      num_blocks: 6
+    node_features:
+      embed_t: False
 
 experiment:
   debug: False
-  # so3_prior: uniform
+  so3_prior: igso3
+  so3_schedule: linear
+
+  num_devices: 4
   wandb:
-    name: no_constant_scaling
+    name: linear_no_embed_t
+    # name: same_losses_exp_5
 
   # sampling:
   #   vf_scaling: 1.0
 
-  # training:
-  #   aux_loss_weight: 1.0
+  training:
+    translation_loss_weight: 1.0
+    rotation_loss_weight: 0.5
+    aux_loss_weight: 1.0
+  sampling:
+    vf_scaling: reverse_time
   #   aux_loss_t_pass: 0.25
 
   # trainer:
   #   accumulate_grad_batches: 2
   #   check_val_every_n_epoch: 2
 
-  # warm_start: ./ckpt/se3-fm/large_model/2023-09-30_15-47-47/epoch=244-step=241325.ckpt
+  # warm_start: ./ckpt/se3-fm/baseline/2023-10-06_01-14-03/last.ckpt
+  # warm_start: ./ckpt/se3-fm/uniform_so3_exp_gpu_4/2023-10-07_23-06-31/last.ckpt
 
   # trainer:
   #   accumulate_grad_batches: 4
