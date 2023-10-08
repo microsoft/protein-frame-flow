@@ -23,13 +23,13 @@ model:
       embed_t: False
 
 experiment:
-  debug: False
+  debug: True
   so3_prior: igso3
   so3_schedule: linear
 
-  num_devices: 4
+  num_devices: 1
   wandb:
-    name: linear_no_embed_t
+    name: debug
     # name: same_losses_exp_5
 
   # sampling:

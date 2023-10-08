@@ -10,9 +10,6 @@ import copy
 import pandas as pd
 import logging
 from pytorch_lightning import LightningModule
-from models.vf_model import VFModel
-from models.genie_model import Genie
-from models.flower_model import Flower
 from models.flow_model import FlowModel
 from data import all_atom 
 from data import utils as du
@@ -34,21 +31,8 @@ class FlowModule(LightningModule):
         self._print_logger = logging.getLogger(__name__)
         self._exp_cfg = experiment_cfg
         self._sampling_cfg = experiment_cfg.sampling
-        
-        if model_cfg.architecture == 'genie':
-            self._model_cfg = model_cfg.genie
-            self.model = Genie(model_cfg.genie)
-        elif model_cfg.architecture == 'framediff':
-            self._model_cfg = model_cfg.framediff
-            self.model = VFModel(model_cfg.framediff)
-        elif model_cfg.architecture == 'flower':
-            self._model_cfg = model_cfg.flower
-            self.model = Flower(model_cfg.flower)
-        elif model_cfg.architecture == 'flow':
-            self._model_cfg = model_cfg.flow
-            self.model = FlowModel(model_cfg.flow)            
-        else:
-            raise NotImplementedError()
+        self._model_cfg = model_cfg.flow
+        self.model = FlowModel(model_cfg.flow)            
         self._sample_write_dir = self._exp_cfg.checkpointer.dirpath
         os.makedirs(self._sample_write_dir, exist_ok=True)
         self.validation_epoch_metrics = []

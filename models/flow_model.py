@@ -1,6 +1,5 @@
 
 import torch
-import math
 from torch import nn
 
 from models.node_feature_net import NodeFeatureNet
