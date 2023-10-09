@@ -62,7 +62,6 @@ experiment:
   noise_rots: True
   rescale_time: False
   use_swa: False
-  min_sigma: 1e-2
   min_t: 1e-3
   so3_prior: uniform
   so3_schedule: exp

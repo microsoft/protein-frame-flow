@@ -7,11 +7,11 @@ inference:
   name: null
   seed: 123
 
-  # https://wandb.ai/jyim/se3-fm/runs/x83ov2eo/overview
-  ckpt_path: ckpt/se3-fm/baseline/2023-10-06_01-14-03/last.ckpt
+  # https://wandb.ai/jyim/se3-fm/runs/isk4empk/overview
+  ckpt_path: ckpt/se3-fm/linear_no_embed_t/2023-10-08_08-51-30/last.ckpt
 
-  # https://wandb.ai/jyim/se3-fm/runs/395pgv73/overview
-  # ckpt_path: ckpt/se3-fm/large_model/2023-09-30_15-47-47/epoch=244-step=241325.ckpt
+  # https://wandb.ai/jyim/se3-fm/runs/x83ov2eo/overview
+  # ckpt_path: ckpt/se3-fm/baseline/2023-10-06_01-14-03/last.ckpt
   
   use_gpu: True
   use_ca_pmpnn: False
