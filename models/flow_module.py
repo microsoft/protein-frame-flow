@@ -406,7 +406,7 @@ class FlowModule(LightningModule):
             elif vf_scale == 'reverse_time_5':
                 temp_scale = 5.0 * (1 - t_1)
             elif vf_scale == 'reverse_time_100':
-                temp_scale = 5.0 * (1 - t_1)
+                temp_scale = 100.0 * (1 - t_1)
             elif vf_scale == 'constant':
                 temp_scale = 10.0
             elif vf_scale is None:

@@ -3,7 +3,7 @@ defaults:
   - base
 
 inference:
-  name: scope_ts_500_ode
+  name: null
   gpu_id: null  # CUDA GPU to use
   seed: 123
 
@@ -18,7 +18,7 @@ inference:
 
   diffusion:
     # Number of steps.
-    num_t: 500
+    num_t: 100
     # Analogous to sampling temperature.
     noise_scale: 1.0
     # Final t.

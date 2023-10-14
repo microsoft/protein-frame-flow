@@ -136,7 +136,7 @@ class R3Diffuser:
         if use_sde:
             perturb = (f_t - g_t**2 * score_t) * dt + g_t * np.sqrt(dt) * z
         else:
-            perturb = 0.5 * (f_t - g_t**2 * score_t) * dt 
+            perturb = (f_t - 0.5 * g_t**2 * score_t) * dt 
 
         if mask is not None:
             perturb *= mask[..., None]
