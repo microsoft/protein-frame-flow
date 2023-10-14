@@ -4,7 +4,7 @@ defaults:
   - _self_
 
 inference:
-  name: ddp_test
+  name: null
   seed: 123
 
   # https://wandb.ai/jyim/se3-fm/runs/0sfpo74r/overview
@@ -13,14 +13,18 @@ inference:
   # https://wandb.ai/jyim/se3-fm/runs/z0zlh0xs/overview
   # ckpt_path: ckpt/se3-fm/flower/2023-09-05_20-34-26/last.ckpt
 
-  ckpt_path: '/data/rsg/chemistry/jyim/projects/flow-matching/ckpt/se3-fm/warm_start/2023-09-05_20-21-01/last.ckpt'
+  # ckpt_path: '/data/rsg/chemistry/jyim/projects/flow-matching/ckpt/se3-fm/warm_start/2023-09-05_20-21-01/last.ckpt'
+  ckpt_path: /data/rsg/chemistry/jyim/projects/flow-matching/ckpt/se3-fm/linear_no_embed_t/2023-10-08_08-51-30/last.ckpt
   
   use_gpu: True
-  use_ca_pmpnn: True
+  use_ca_pmpnn: False
 
   # Number of steps.
   num_timesteps: 100
+
   do_sde: False
+  sde_noise_scale: 1.0
+  vf_scale: reverse_time_5
 
   # DDP settings.
   num_gpus: 4
@@ -34,7 +38,11 @@ inference:
   wandb_enable: True
   wandb:
     project: se3-fm-inference
-    tags: ['ts_${inference.num_timesteps}']
+    tags: [
+      'ts_${inference.num_timesteps}',
+      'ca_mpnn_${inference.use_ca_pmpnn}',
+      'sde_${inference.do_sde}'
+    ]
 
   samples:
     # Number of backbone samples per sequence length.
