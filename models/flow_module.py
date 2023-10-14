@@ -325,6 +325,7 @@ class FlowModule(LightningModule):
             return_model_outputs=False,
             num_timesteps=None,
             do_sde=None,
+            sde_noise_scale=1.0,
         ):
         if do_sde is None:
             do_sde = self._sampling_cfg.do_sde
@@ -339,7 +340,9 @@ class FlowModule(LightningModule):
             )
         else:
             return self.run_sde_sampling(
-                batch, return_traj, return_model_outputs, num_timesteps)
+                batch, return_traj, return_model_outputs, num_timesteps,
+                vf_scale, sde_noise_scale
+            )
 
     @torch.no_grad()
     def run_ode_sampling(
@@ -399,20 +402,7 @@ class FlowModule(LightningModule):
             )
             trans_vf = (pred_trans_1 - trans_t_1) / (1 - t_1)
             trans_t_2 = trans_t_1 + trans_vf * d_t
-            if vf_scale == 'forward_time':
-                temp_scale = 10.0 * t_1
-            elif vf_scale == 'reverse_time':
-                temp_scale = 10.0 * (1 - t_1)
-            elif vf_scale == 'reverse_time_5':
-                temp_scale = 5.0 * (1 - t_1)
-            elif vf_scale == 'reverse_time_100':
-                temp_scale = 100.0 * (1 - t_1)
-            elif vf_scale == 'constant':
-                temp_scale = 10.0
-            elif vf_scale is None:
-                temp_scale = 1.0
-            else:
-                raise ValueError(f'Unknown scaling {vf_scale}')
+            temp_scale = get_temp_scale(vf_scale, t_1)
 
             if self._model_cfg.predict_rot_vf:
                 rots_t_2 = so3_utils.geodesic_t(
@@ -465,6 +455,8 @@ class FlowModule(LightningModule):
         return_traj,
         return_model_outputs,
         num_timesteps,
+        vf_scale,
+        sde_noise_scale,
         ):
 
         batch, _ = batch
@@ -507,24 +499,33 @@ class FlowModule(LightningModule):
 
                 model_out = self.forward(batch)
             pred_trans_1 = model_out['pred_trans']
-            pred_rots_1 = model_out['pred_rots'].get_rot_mats()
+            pred_rots_1 = model_out['pred_rots']
+            pred_rotmats_1 = pred_rots_1.get_rot_mats()
             pred_rots_vf = model_out['pred_rots_vf']
             if self._exp_cfg.self_condition:
                 batch['trans_sc'] = pred_trans_1
 
             model_traj.append(
-                (pred_trans_1.detach().cpu(), pred_rots_1.detach().cpu())
+                (pred_trans_1.detach().cpu(), pred_rotmats_1.detach().cpu())
             )
             assert d_t < 0
 
             # Euler-Maruyama step on the translations
             trans_score = ((1 - t_1) * pred_trans_1 - trans_t_1) / (t_1**2 * du.NM_TO_ANG_SCALE**2)
             trans_t_2 = (((-1)/(1-t_1)) * trans_t_1 - du.NM_TO_ANG_SCALE**2 * ((2 * t_1) / (1 - t_1)) * trans_score) * d_t + trans_t_1
-            trans_t_2 = trans_t_2 + torch.randn_like(trans_t_2) * np.sqrt( (-d_t) * (2 * t_1) / (1 - t_1)  ) * du.NM_TO_ANG_SCALE
+            trans_t_2 = trans_t_2 + sde_noise_scale * torch.randn_like(trans_t_2) * np.sqrt( (-d_t) * (2 * t_1) / (1 - t_1)  ) * du.NM_TO_ANG_SCALE
 
             # ODE step on the rotations
-            rots_t_2 = so3_utils.geodesic_t(
-                (-d_t) / t_1, None, rots_t_1, rot_vf=pred_rots_vf) 
+            temp_scale = get_temp_scale(vf_scale, 1-t_1)
+
+            if self._model_cfg.predict_rot_vf:
+                rots_t_2 = so3_utils.geodesic_t(
+                    # self._sampling_cfg.vf_scaling 
+                    temp_scale * (-d_t) / t_1, pred_rotmats_1, rots_t_1, rot_vf=pred_rots_vf)
+            else:
+                rots_t_2 = so3_utils.geodesic_t(
+                    # self._sampling_cfg.vf_scaling
+                     temp_scale * (-d_t) / t_1, pred_rotmats_1, rots_t_1) 
 
             t_1 = t_2
             if return_traj:
@@ -548,18 +549,19 @@ class FlowModule(LightningModule):
             model_out = self.forward(batch)
 
         pred_trans_1 = model_out['pred_trans']
+        pred_rots_1 = model_out['pred_rots']
+        pred_rotmats_1 = pred_rots_1.get_rot_mats()
+        pred_rots_vf = model_out['pred_rots_vf'] # magnitude of this is tiny
 
         if self._model_cfg.predict_rot_vf:
-            pred_rots_vf = model_out['pred_rots_vf'] # magnitude of this is tiny
-            pred_rots_1 = so3_utils.geodesic_t(1, None, rots_t_1, rot_vf=pred_rots_vf)
+            rots_t_2 = so3_utils.geodesic_t(1, None, rots_t_1, rot_vf=pred_rots_vf)
         else:
-            pred_rots_1 = model_out['pred_rots'].get_rot_mats()
+            rots_t_2 = pred_rotmats_1
 
         trans_t_2 = pred_trans_1
-        rots_t_2 = pred_rots_1
 
         model_traj.append(
-            (pred_trans_1.detach().cpu(), pred_rots_1.detach().cpu())
+            (pred_trans_1.detach().cpu(), pred_rotmats_1.detach().cpu())
         )
 
         if return_traj:
@@ -671,3 +673,21 @@ def t_stratified_loss(batch_t, batch_loss, num_bins=4, loss_name=None):
         range_loss = t_binned_loss[t_bin] / t_binned_n[t_bin]
         stratified_losses[t_range] = range_loss
     return stratified_losses
+
+def get_temp_scale(vf_scale, t_1):
+    if vf_scale == 'forward_time':
+        temp_scale = 10.0 * t_1
+    elif vf_scale == 'reverse_time':
+        temp_scale = 10.0 * (1 - t_1)
+    elif vf_scale == 'reverse_time_5':
+        temp_scale = 5.0 * (1 - t_1)
+    elif vf_scale == 'reverse_time_100':
+        temp_scale = 100.0 * (1 - t_1)
+    elif vf_scale == 'constant':
+        temp_scale = 10.0
+    elif vf_scale is None:
+        temp_scale = 1.0
+    else:
+        raise ValueError(f'Unknown scaling {vf_scale}')
+
+    return temp_scale

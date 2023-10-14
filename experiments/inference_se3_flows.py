@@ -240,7 +240,8 @@ class Sampler:
                 return_model_outputs=True,
                 num_timesteps=self._infer_cfg.num_timesteps,
                 do_sde=self._infer_cfg.do_sde,
-                vf_scale=self._infer_cfg.vf_scale
+                vf_scale=self._infer_cfg.vf_scale,
+                sde_noise_scale=self._infer_cfg.sde_noise_scale,
             )
             traj_paths = self.save_traj(
                 np.flip(du.to_numpy(torch.concat(atom37_traj, dim=0)), axis=0),
