@@ -4,7 +4,7 @@ defaults:
   - _self_
 
 inference:
-  name: ddp_test
+  name: null
   seed: 123
 
   # https://wandb.ai/jyim/se3-fm/runs/0sfpo74r/overview

@@ -372,6 +372,7 @@ class Sampler:
         mpnn_name = 'ca_mpnn' if cfg.inference.use_ca_pmpnn else 'frame_mpnn'
         self.interpolant_name = 'sde' if cfg.inference.do_sde else 'ode'
         self.vf_scale = 'temp_1' if cfg.inference.vf_scale is None else cfg.inference.vf_scale
+        self.sde_noise_scale = cfg.inference.sde_noise_scale
         if self._infer_cfg.name is None:
             self._output_dir = os.path.join(
                 output_base_dir, self._ckpt_name,
@@ -379,6 +380,7 @@ class Sampler:
                 mpnn_name,
                 self.vf_scale,
                 self.interpolant_name,
+                f'NS_{self.sde_noise_scale}',
             )
         else:
             self._output_dir = os.path.join(output_base_dir, self._infer_cfg.name) 
@@ -424,7 +426,7 @@ class Sampler:
 
         # Set-up wandb
         if self._infer_cfg.name is None:
-            wandb_name = f'{self._ckpt_name}_{self.interpolant_name}_ts_{self._infer_cfg.num_timesteps}_{self.vf_scale}'
+            wandb_name = f'{self._ckpt_name}_{self.interpolant_name}_ts_{self._infer_cfg.num_timesteps}_{self.vf_scale}_NS_{self.sde_noise_scale}'
         else:
             wandb_name = self._infer_cfg.name
         if self._infer_cfg.wandb_enable:
