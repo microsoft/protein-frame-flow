@@ -22,6 +22,7 @@ inference:
   num_timesteps: 100
 
   do_sde: False
+  sde_noise_scale: 1.0
   vf_scale: reverse_time_5
 
   # Directory of software, weights, and outputs.
