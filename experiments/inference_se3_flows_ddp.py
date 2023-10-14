@@ -294,10 +294,12 @@ def predict_step(self, batch, batch_idx):
 
     atom37_traj = self.run_sampling(
         batch=batch,
+        vf_scale=self._infer_cfg.vf_scale,
         return_traj=False,
         return_model_outputs=False,
         num_timesteps=self._infer_cfg.num_timesteps,
-        do_sde=self._infer_cfg.do_sde
+        do_sde=self._infer_cfg.do_sde,
+        sde_noise_scale=self._infer_cfg.sde_noise_scale,
     )
     # atom37_traj is list of length 1 with the element a tensor
     # of shape (batch_size, max_res, 37, 3)
@@ -360,16 +362,24 @@ class Sampler:
         self._model = FlowModule.load_from_checkpoint(
             checkpoint_path=ckpt_path,
             model_cfg=self._cfg.model,
-            experiment_cfg=self._cfg.experiment
+            experiment_cfg=self._cfg.experiment, # TODO we may need a map_location here as per inference_se3_flows.py
         ) 
         self._model.eval()
 
         # Set-up directories to write results to
         output_base_dir = self._infer_cfg.output_dir
         self._ckpt_name = '_'.join(ckpt_path.replace('.ckpt', '').split('/')[-3:])
+        mpnn_name = 'ca_mpnn' if cfg.inference.use_ca_pmpnn else 'frame_mpnn'
+        self.interpolant_name = 'sde' if cfg.inference.do_sde else 'ode'
+        self.vf_scale = 'temp_1' if cfg.inference.vf_scale is None else cfg.inference.vf_scale
         if self._infer_cfg.name is None:
             self._output_dir = os.path.join(
-                output_base_dir, self._ckpt_name, f'ts_{self._infer_cfg.num_timesteps}')
+                output_base_dir, self._ckpt_name,
+                f'ts_{self._infer_cfg.num_timesteps}',
+                mpnn_name,
+                self.vf_scale,
+                self.interpolant_name,
+            )
         else:
             self._output_dir = os.path.join(output_base_dir, self._infer_cfg.name) 
         os.makedirs(self._output_dir, exist_ok=True)
@@ -413,12 +423,16 @@ class Sampler:
             return
 
         # Set-up wandb
+        if self._infer_cfg.name is None:
+            wandb_name = f'{self._ckpt_name}_{self.interpolant_name}_ts_{self._infer_cfg.num_timesteps}_{self.vf_scale}'
+        else:
+            wandb_name = self._infer_cfg.name
         if self._infer_cfg.wandb_enable:
             log.info('Initializing wandb')
             cfg_dict = OmegaConf.to_container(self._cfg, resolve=True)
             wandb.init(
                 config=dict(eu.flatten_dict(cfg_dict)),
-                name=self._ckpt_name,
+                name=wandb_name,
                 **self._infer_cfg.wandb
             )
 
