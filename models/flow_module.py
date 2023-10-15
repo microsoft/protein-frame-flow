@@ -628,10 +628,10 @@ class FlowModule(LightningModule):
         self._log_scalar(
             "train/length", batch['res_mask'].shape[1], prog_bar=False, batch_size=num_batch)
         self._log_scalar(
-            "train/batch_size", num_batch, prog_bar=False, rank_zero_only=False)
+            "train/batch_size", num_batch, prog_bar=False)
         step_time = time.time() - step_start_time
         self._log_scalar(
-            "train/examples_per_second", num_batch / step_time, rank_zero_only=False)
+            "train/examples_per_second", num_batch / step_time)
         train_loss = (
             total_losses[self._exp_cfg.training.loss]
             +  total_losses['auxiliary_loss']
