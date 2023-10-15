@@ -69,10 +69,9 @@ class FlowModule(LightningModule):
         # Ground truth labels
         gt_trans_1 = noisy_batch['trans_1']
         gt_rotmats_1 = noisy_batch['rotmats_1']
+        rotmats_t = noisy_batch['rotmats_t']
         gt_rot_vf = so3_utils.calc_rot_vf(
-            noisy_batch['rotmats_t'].type(torch.float32),
-            gt_rotmats_1.type(torch.float32)
-        )
+            rotmats_t, gt_rotmats_1.type(torch.float32))
         gt_bb_atoms = all_atom.to_atom37(gt_trans_1, gt_rotmats_1)[:, :, :3] 
 
         # Timestep used for normalization.
@@ -83,9 +82,8 @@ class FlowModule(LightningModule):
         # Model output predictions.
         model_output = self.model(noisy_batch)
         pred_trans_1 = model_output['pred_trans']
-        pred_rotmats_1 = model_output['pred_rots'].get_rot_mats()
-        pred_rots_vf = model_output['pred_rots_vf']
-
+        pred_rotmats_1 = model_output['pred_rotmats']
+        pred_rots_vf = so3_utils.calc_rot_vf(rotmats_t, pred_rotmats_1)
 
         # Backbone atom loss
         pred_bb_atoms = all_atom.to_atom37(pred_trans_1, pred_rotmats_1)[:, :, :3]
@@ -165,7 +163,7 @@ class FlowModule(LightningModule):
             self.model,
             trans_1=batch['trans_1'],
             rotmats_1=batch['rotmats_1']
-        )[0][0].numpy()
+        )[0][-1].numpy()
         # samples = self.run_sampling(
         #     batch,
         #     return_traj=False,

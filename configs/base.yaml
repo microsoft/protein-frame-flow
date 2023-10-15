@@ -29,6 +29,7 @@ interpolant:
     igso3_max_sigma: 1.5
   trans:
     corrupt: True
+    pre_align: True
     train_schedule: linear
     sample_schedule: linear
     sample_temp: 1.0
@@ -70,7 +71,7 @@ model:
     num_blocks: 6
 
 experiment:
-  debug: True
+  debug: False
   seed: 123
   num_devices: 2
   warm_start: null
@@ -95,7 +96,7 @@ experiment:
     aux_loss_weight: 1.0
     aux_loss_t_pass: 0.25
   wandb:
-    name: baseline
+    name: refactor_with_align
     project: se3-fm
     save_code: True
     tags: ['baseline']

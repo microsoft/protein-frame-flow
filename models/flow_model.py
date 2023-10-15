@@ -103,12 +103,8 @@ class FlowModel(nn.Module):
 
         curr_rigids = self.rigids_nm_to_ang(curr_rigids)
         pred_trans = curr_rigids.get_trans()
-        pred_rots = curr_rigids.get_rots()
-        rots_vf = so3_utils.calc_rot_vf(rotmats_t, pred_rots.get_rot_mats())
-        rots_vf *= node_mask[..., None]
-
+        pred_rotmats = curr_rigids.get_rots().get_rot_mats()
         return {
             'pred_trans': pred_trans,
-            'pred_rots': pred_rots,
-            'pred_rots_vf': rots_vf,
+            'pred_rotmats': pred_rotmats,
         }

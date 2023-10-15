@@ -43,6 +43,10 @@ class Interpolant:
     def _corrupt_trans(self, trans_1, t, res_mask):
         trans_nm_0 = _centered_gaussian(*res_mask.shape, self._device)
         trans_0 = trans_nm_0 * du.NM_TO_ANG_SCALE
+        if self._trans_cfg.pre_align:
+            trans_0, _, _ = du.batch_align_structures(
+                trans_0, trans_1, mask=res_mask
+            )
         if self._trans_cfg.train_schedule == 'linear':
             trans_t = (1 - t[..., None]) * trans_0 + t[..., None] * trans_1
         else:
@@ -184,7 +188,7 @@ class Interpolant:
 
             # Process model output.
             pred_trans_1 = model_out['pred_trans']
-            pred_rotmats_1 = model_out['pred_rots'].get_rot_mats()
+            pred_rotmats_1 = model_out['pred_rotmats']
             clean_traj.append(
                 (pred_trans_1.detach().cpu(), pred_rotmats_1.detach().cpu())
             )
@@ -218,7 +222,7 @@ class Interpolant:
         with torch.no_grad():
             model_out = model(batch)
         pred_trans_1 = model_out['pred_trans']
-        pred_rotmats_1 = model_out['pred_rots'].get_rot_mats()
+        pred_rotmats_1 = model_out['pred_rotmats']
         clean_traj.append(
             (pred_trans_1.detach().cpu(), pred_rotmats_1.detach().cpu())
         )
