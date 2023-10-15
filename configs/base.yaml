@@ -63,7 +63,7 @@ experiment:
   rescale_time: False
   use_swa: False
   min_t: 1e-3
-  so3_prior: uniform
+  so3_prior: igso3
   so3_schedule: linear
   self_condition: ${model.flow.edge_features.self_condition}
   batch_ot:
