@@ -9,37 +9,40 @@ import copy
 import pandas as pd
 import logging
 from pytorch_lightning import LightningModule
-from models.flow_model import FlowModel
-from data import all_atom 
-from data import utils as du
+from analysis import metrics 
 from analysis import utils as au
-from analysis import metrics
-from scipy.spatial.transform import Rotation 
+from models.flow_model import FlowModel
+from data.interpolant import Interpolant 
+from data import utils as du
+from data import all_atom
 from data import so3_utils
 from data import flow_utils
 from pytorch_lightning.loggers.wandb import WandbLogger
-from scipy.optimize import linear_sum_assignment
 
 CA_IDX = metrics.CA_IDX
 
 
 class FlowModule(LightningModule):
 
-    def __init__(self, *, model_cfg, experiment_cfg):
+    def __init__(self, cfg):
         super().__init__()
         self._print_logger = logging.getLogger(__name__)
-        self._exp_cfg = experiment_cfg
-        self._sampling_cfg = experiment_cfg.sampling
-        self._model_cfg = model_cfg.flow
-        self.model = FlowModel(model_cfg.flow)            
+        self._exp_cfg = cfg.experiment
+        self._model_cfg = cfg.model
+        self._interpolant_cfg = cfg.interpolant
+
+        # Set-up vector field prediction model
+        self.model = FlowModel(cfg.model)
+
+        # Set-up interpolant
+        self.interpolant = Interpolant(cfg.interpolant)
+
         self._sample_write_dir = self._exp_cfg.checkpointer.dirpath
         os.makedirs(self._sample_write_dir, exist_ok=True)
+
         self.validation_epoch_metrics = []
         self.validation_epoch_samples = []
         self.save_hyperparameters()
-        if self._exp_cfg.so3_prior == 'igso3':
-            sigma_grid = torch.linspace(0.1, 1.5, 1000)
-            self._igso3 = so3_utils.SampleIGSO3(1000, sigma_grid)
         
     def on_train_start(self):
         self._epoch_start_time = time.time()
@@ -48,9 +51,9 @@ class FlowModule(LightningModule):
         self.trainer.train_dataloader.batch_sampler.set_epoch(self.current_epoch)
         
     def on_train_epoch_end(self):
-        epoch_time = time.time() - self._epoch_start_time
+        epoch_time = (time.time() - self._epoch_start_time) / 60.0
         self.log(
-            'train/epoch_time_seconds',
+            'train/epoch_time_minutes',
             epoch_time,
             on_step=False,
             on_epoch=True,
@@ -58,135 +61,33 @@ class FlowModule(LightningModule):
         )
         self._epoch_start_time = time.time()
 
-    def forward(self, x):
-        return self.model(x)
-    
-    def _batch_ot(self, trans_1, mask):
-        batch_ot_cfg = self._exp_cfg.batch_ot
-        num_batch, num_res = trans_1.shape[:2]
-        device = trans_1.device
-        num_noise = num_batch * batch_ot_cfg.noise_per_sample
-        trans_nm_1 = trans_1 * du.ANG_TO_NM_SCALE
-
-        # Sampose noise
-        trans_nm_0 = self._centered_gaussian((num_noise, num_res, 3), device)
-
-        # Align noise to ground truth
-        if batch_ot_cfg.permute:
-            noise_idx, gt_idx = torch.where(torch.ones(num_noise, num_batch))
-            batch_nm_0 = trans_nm_0[noise_idx]
-            batch_nm_1 = trans_nm_1[gt_idx]
-            batch_mask = mask[gt_idx]
-            aligned_nm_0, aligned_nm_1, _ = du.batch_align_structures(
-                batch_nm_0, batch_nm_1, mask=batch_mask
-            ) 
-            aligned_nm_0 = aligned_nm_0.reshape(num_noise, num_batch, num_res, 3)
-            aligned_nm_1 = aligned_nm_1.reshape(num_noise, num_batch, num_res, 3)
-            
-            # Compute cost matrix of aligned noise to ground truth
-            batch_mask = batch_mask.reshape(num_noise, num_batch, num_res)
-            cost_matrix = torch.sum(
-                torch.linalg.norm(aligned_nm_0 - aligned_nm_1, dim=-1), dim=-1
-            ) / torch.sum(batch_mask, dim=-1)
-            noise_perm, gt_perm = linear_sum_assignment(du.to_numpy(cost_matrix))
-            return aligned_nm_0[(tuple(gt_perm), tuple(noise_perm))]
-        else:
-            aligned_nm_0, _, _ = du.batch_align_structures(
-                trans_nm_0, trans_nm_1, mask=mask
-            )
-            return aligned_nm_0
-
-    def _centered_gaussian(self, shape, device):
-        noise = torch.randn(*shape, device=device) * self._exp_cfg.sampling.prior_scale
-        return noise - torch.mean(noise, dim=-2, keepdims=True)
-    
-    def _corrupt_batch(self, batch, t=None):
-        noisy_batch = copy.deepcopy(batch)
-        gt_trans_1 = batch['trans_1']  # Angstrom
-        gt_rotmats_1 = batch['rotmats_1']
-        res_mask = batch['res_mask']
-        device = gt_trans_1.device
-        num_batch, num_res, _ = gt_trans_1.shape
-        if t is None:
-            t = torch.rand(num_batch, 1, 1, device=device) * (1 - self._exp_cfg.min_t) + self._exp_cfg.min_t
-        noisy_batch['t'] = t[:, 0]
-
-        if self._exp_cfg.batch_ot.enabled:
-            trans_nm_0 = self._batch_ot(gt_trans_1, res_mask)
-        else:
-            trans_nm_0 = self._centered_gaussian(gt_trans_1.shape, device)
-        noisy_batch['trans_0'] = trans_nm_0 * du.NM_TO_ANG_SCALE
-
-        if self._exp_cfg.noise_trans:
-            trans_nm_t = (1 - t) * trans_nm_0 + t * gt_trans_1 * du.ANG_TO_NM_SCALE
-            trans_nm_t *= res_mask[..., None]
-            noisy_batch['trans_t'] = trans_nm_t * du.NM_TO_ANG_SCALE
-        else:
-            noisy_batch['trans_t'] = gt_trans_1
-
-        if self._exp_cfg.noise_rots:
-            if self._exp_cfg.so3_prior == 'uniform':
-                rotmats_0 = torch.tensor(
-                    Rotation.random(num_batch*num_res).as_matrix(),
-                    device=device,
-                    dtype=torch.float32
-                ).reshape(num_batch, num_res, 3, 3)
-            elif self._exp_cfg.so3_prior == 'igso3':
-                noisy_rotmats = self._igso3.sample(
-                    torch.tensor([1.5], device=device),
-                    num_batch*num_res
-                ).to(device)
-                noisy_rotmats = noisy_rotmats.reshape(num_batch, num_res, 3, 3)
-                rotmats_0 = torch.einsum(
-                    "...ij,...jk->...ik", gt_rotmats_1, noisy_rotmats)
-
-            noisy_batch['rotmats_0'] = rotmats_0
-            if self._exp_cfg.so3_schedule == 'exp':
-                so3_t = 1 - torch.exp(-t*10)
-            elif self._exp_cfg.so3_schedule == 'exp_5':
-                so3_t = 1 - torch.exp(-t*5)
-            elif self._exp_cfg.so3_schedule == 'linear':
-                so3_t = t
-            else:
-                raise ValueError(f'Invalid schedule: {self._exp_cfg.so3_schedule}')
-
-            rotmats_t = so3_utils.geodesic_t(so3_t, gt_rotmats_1, rotmats_0)
-            rotmats_t = (
-                rotmats_t * res_mask[..., None, None]
-                + torch.eye(3, device=device)[None, None] * (1 - res_mask[..., None, None])
-            )
-            noisy_batch['rotmats_t'] = rotmats_t
-        else:
-            noisy_batch['rotmats_t'] = gt_rotmats_1
-        return noisy_batch
-
     def model_step(self, noisy_batch: Any):
         training_cfg = self._exp_cfg.training
-        if training_cfg.superimpose not in ['all_atom', 'c_alpha', None]:
-            raise ValueError(f'Unknown superimpose method {training_cfg.superimpose}')
+        res_mask = noisy_batch['res_mask']
+        num_batch, num_res = res_mask.shape
+
+        # Ground truth labels
         gt_trans_1 = noisy_batch['trans_1']
         gt_rotmats_1 = noisy_batch['rotmats_1']
-        res_mask = noisy_batch['res_mask']
-        num_batch, num_res = res_mask.shape[:2]
-        gt_bb_atoms = all_atom.to_atom37(gt_trans_1, gt_rotmats_1)[:, :, :3] 
-        batch_t = noisy_batch['t']
-        t_norm_scale = 1 - torch.min(
-            batch_t[..., None], torch.tensor(training_cfg.t_normalize_clip))
-        
-        model_output = self.model(noisy_batch)
-        pred_trans_1 = model_output['pred_trans']
-        pred_rots_1 = model_output['pred_rots']
-        pred_rotvecs_1 = pred_rots_1.get_rotvec()
-        pred_rotmats_1 = pred_rots_1.get_rot_mats()
-        pred_rots_vf = model_output['pred_rots_vf']
-
-        gt_rotvecs_1 = so3_utils.rotmat_to_rotvec(gt_rotmats_1)
         gt_rot_vf = so3_utils.calc_rot_vf(
             noisy_batch['rotmats_t'].type(torch.float32),
             gt_rotmats_1.type(torch.float32)
         )
+        gt_bb_atoms = all_atom.to_atom37(gt_trans_1, gt_rotmats_1)[:, :, :3] 
 
-        # Full backbone atom loss
+        # Timestep used for normalization.
+        batch_t = noisy_batch['t']
+        t_norm_scale = 1 - torch.min(
+            batch_t[..., None], torch.tensor(training_cfg.t_normalize_clip))
+        
+        # Model output predictions.
+        model_output = self.model(noisy_batch)
+        pred_trans_1 = model_output['pred_trans']
+        pred_rotmats_1 = model_output['pred_rots'].get_rot_mats()
+        pred_rots_vf = model_output['pred_rots_vf']
+
+
+        # Backbone atom loss
         pred_bb_atoms = all_atom.to_atom37(pred_trans_1, pred_rotmats_1)[:, :, :3]
         gt_bb_atoms *= training_cfg.bb_atom_scale / t_norm_scale[..., None]
         pred_bb_atoms *= training_cfg.bb_atom_scale / t_norm_scale[..., None]
@@ -207,13 +108,6 @@ class FlowModule(LightningModule):
             dim=(-1, -2)
         ) / loss_denom
         trans_loss *= batch_t[..., 0] < training_cfg.translation_loss_t_upper
-
-        # Clean rotation loss
-        rots_loss = training_cfg.rotation_loss_weights * torch.sum(
-            (gt_rotvecs_1 - pred_rotvecs_1) ** 2 * res_mask[..., None],
-            dim=(-1, -2)
-        ) / loss_denom
-        rots_loss *= self._exp_cfg.noise_rots
 
         # Rotation VF loss
         gt_rot_vf /= t_norm_scale
@@ -248,7 +142,6 @@ class FlowModule(LightningModule):
             dim=(1, 2))
         dist_mat_loss /= (torch.sum(pair_dist_mask, dim=(1, 2)) - num_res)
 
-        se3_loss = trans_loss + rots_loss
         se3_vf_loss = trans_loss + rots_vf_loss
         auxiliary_loss = (bb_atom_loss + dist_mat_loss) * (batch_t[:, 0] > training_cfg.aux_loss_t_pass)
         auxiliary_loss *= self._exp_cfg.training.aux_loss_weight
@@ -256,8 +149,6 @@ class FlowModule(LightningModule):
         return noisy_batch, {
             "bb_atom_loss": bb_atom_loss,
             "trans_loss": trans_loss,
-            "rots_loss": rots_loss,
-            "se3_loss": se3_loss,
             "dist_mat_loss": dist_mat_loss,
             "auxiliary_loss": auxiliary_loss,
             "rots_vf_loss": rots_vf_loss,
@@ -265,12 +156,22 @@ class FlowModule(LightningModule):
         }
 
     def validation_step(self, batch: Any, batch_idx: int):
-        samples = self.run_sampling(
-            batch,
-            return_traj=False,
-            vf_scale=self._sampling_cfg.vf_scaling,
-        )[0].numpy()
-        num_batch, num_res = samples.shape[:2]
+        res_mask = batch['res_mask']
+        self.interpolant.set_device(res_mask.device)
+        num_batch, num_res = res_mask.shape
+        samples = self.interpolant.sample(
+            num_batch,
+            num_res,
+            self.model,
+            trans_1=batch['trans_1'],
+            rotmats_1=batch['rotmats_1']
+        )[0][0].numpy()
+        # samples = self.run_sampling(
+        #     batch,
+        #     return_traj=False,
+        #     vf_scale=self._sampling_cfg.vf_scaling,
+        # )[0].numpy()
+        # num_batch, num_res = samples.shape[:2]
         
         batch_metrics = []
         for i in range(num_batch):
@@ -388,13 +289,13 @@ class FlowModule(LightningModule):
                 else:
                     batch['rotmats_t'] = batch['rotmats_1']
                 batch['t'] = torch.ones((num_batch, 1)).to(device) * t_1
-                model_out = self.forward(batch)
+                model_out = self.model(batch)
 
             pred_trans_1 = model_out['pred_trans']
             pred_rots_1 = model_out['pred_rots']
             pred_rotmats_1 = pred_rots_1.get_rot_mats()
             pred_rots_vf = model_out['pred_rots_vf']
-            if self._exp_cfg.self_condition:
+            if self._cfg.self_condition:
                 batch['trans_sc'] = pred_trans_1
 
             model_traj.append(
@@ -430,7 +331,7 @@ class FlowModule(LightningModule):
             else:
                 batch['rotmats_t'] = batch['rotmats_1']
             batch['t'] = torch.ones((num_batch, 1)).to(device) * t_1
-            model_out = self.forward(batch)
+            model_out = self.model(batch)
         final_trans_1 = model_out['pred_trans']
         final_rots_1 = model_out['pred_rots']
         final_rotmats_1 = final_rots_1.get_rot_mats()
@@ -497,7 +398,7 @@ class FlowModule(LightningModule):
                 # flip time
                 batch['t'] = torch.ones((num_batch, 1)).to(device) * (1 - t_1)
 
-                model_out = self.forward(batch)
+                model_out = self.model(batch)
             pred_trans_1 = model_out['pred_trans']
             pred_rots_1 = model_out['pred_rots']
             pred_rotmats_1 = pred_rots_1.get_rot_mats()
@@ -546,7 +447,7 @@ class FlowModule(LightningModule):
             else:
                 batch['rotmats_t'] = batch['rotmats_1']
             batch['t'] = torch.ones((num_batch, 1)).to(device) * (1 - t_1)
-            model_out = self.forward(batch)
+            model_out = self.model(batch)
 
         pred_trans_1 = model_out['pred_trans']
         pred_rots_1 = model_out['pred_rots']
@@ -582,23 +483,11 @@ class FlowModule(LightningModule):
         self.log(
             key, value, on_step=on_step, on_epoch=on_epoch, prog_bar=prog_bar, batch_size=batch_size, sync_dist=sync_dist, rank_zero_only=rank_zero_only)
 
-    def _self_correct(self, noisy_batch):
-        tmp_batch = copy.deepcopy(noisy_batch)
-        with torch.no_grad():
-            model_output = self.model(tmp_batch)
-        tmp_batch['trans_1'] = model_output['pred_trans']
-        tmp_batch['rotmats_1'] = model_output['pred_rots'].get_rot_mats()
-        correcting_batch = self._corrupt_batch(tmp_batch, t=tmp_batch['t'][..., None])
-        noisy_batch['trans_t'] = correcting_batch['trans_t']
-        noisy_batch['rotmats_t'] = correcting_batch['rotmats_t']
-        return noisy_batch
-
     def training_step(self, batch: Any, stage: int):
         step_start_time = time.time()
-        noisy_batch = self._corrupt_batch(batch)
-        if self._exp_cfg.training.self_correcting and random.random() < 0.25:
-            noisy_batch = self._self_correct(noisy_batch)
-        if self._exp_cfg.self_condition and random.random() > 0.5:
+        self.interpolant.set_device(batch['res_mask'].device)
+        noisy_batch = self.interpolant.corrupt_batch(batch)
+        if self._interpolant_cfg.self_condition and random.random() > 0.5:
             with torch.no_grad():
                 model_sc = self.model(noisy_batch)
                 noisy_batch['trans_sc'] = model_sc['pred_trans']
@@ -641,12 +530,6 @@ class FlowModule(LightningModule):
         return train_loss
 
     def configure_optimizers(self):
-        """Choose what optimizers and learning-rate schedulers to use in your optimization.
-        Normally you'd need one. But in the case of GANs or similar you might have multiple.
-
-        Examples:
-            https://lightning.ai/docs/pytorch/latest/common/lightning_module.html#configure-optimizers
-        """
         return torch.optim.AdamW(
             params=self.model.parameters(),
             **self._exp_cfg.optimizer

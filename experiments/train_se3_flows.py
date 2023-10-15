@@ -27,10 +27,7 @@ class Experiment:
         self._data_cfg = cfg.data
         self._exp_cfg = cfg.experiment
         self._datamodule: LightningDataModule = PdbDataModule(self._data_cfg)
-        self._model: LightningModule = FlowModule(
-            model_cfg=self._cfg.model,
-            experiment_cfg=self._exp_cfg
-        )
+        self._model: LightningModule = FlowModule(self._cfg)
         
     def train(self):
         callbacks = []

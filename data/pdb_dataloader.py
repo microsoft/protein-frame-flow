@@ -152,14 +152,10 @@ class PdbDataset(Dataset):
         # Sample data example.
         example_idx = idx
         csv_row = self.csv.iloc[example_idx]
-        pdb_name = csv_row['pdb_name']
         processed_file_path = csv_row['processed_path']
         chain_feats = self._process_csv_row(processed_file_path)
         chain_feats['csv_idx'] = torch.ones(1, dtype=torch.long) * idx
-        if self.is_training:
-            return chain_feats
-        else:
-            return chain_feats, pdb_name
+        return chain_feats
 
 
 class LengthBatcher:

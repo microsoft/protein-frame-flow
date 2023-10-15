@@ -15,8 +15,8 @@ class FlowModel(nn.Module):
         super(FlowModel, self).__init__()
         self._model_conf = model_conf
         self._ipa_conf = model_conf.ipa
-        self.rigids_ang_to_nm = lambda x: x.apply_trans_fn(lambda x: x * 0.1)
-        self.rigids_nm_to_ang = lambda x: x.apply_trans_fn(lambda x: x * 10.0)
+        self.rigids_ang_to_nm = lambda x: x.apply_trans_fn(lambda x: x * du.ANG_TO_NM_SCALE)
+        self.rigids_nm_to_ang = lambda x: x.apply_trans_fn(lambda x: x * du.NM_TO_ANG_SCALE)
         
         self.node_feature_net = NodeFeatureNet(model_conf.node_features)
         self.edge_feature_net = EdgeFeatureNet(model_conf.edge_features)
@@ -42,7 +42,7 @@ class FlowModel(nn.Module):
             self.trunk[f'node_transition_{b}'] = ipa_pytorch.StructureModuleTransition(
                 c=self._ipa_conf.c_s)
             self.trunk[f'bb_update_{b}'] = ipa_pytorch.BackboneUpdate(
-                self._ipa_conf.c_s, self._model_conf.use_rot_updates)
+                self._ipa_conf.c_s, use_rot_updates=True)
 
             if b < self._ipa_conf.num_blocks-1:
                 # No edge update on the last block.
@@ -52,11 +52,6 @@ class FlowModel(nn.Module):
                     edge_embed_in=edge_in,
                     edge_embed_out=self._model_conf.edge_embed_size,
                 )
-        if self._model_conf.predict_rot_vf:
-            self._rot_vf_head = ipa_pytorch.RotationVFLayer(
-                self._model_conf.node_embed_size,
-                self._model_conf.node_embed_size
-            )
 
     def forward(self, input_feats):
         node_mask = input_feats['res_mask']
@@ -98,12 +93,8 @@ class FlowModel(nn.Module):
             node_embed = node_embed * node_mask[..., None]
             rigid_update = self.trunk[f'bb_update_{b}'](
                 node_embed * node_mask[..., None])
-            if self._model_conf.use_rot_updates:
-                curr_rigids = curr_rigids.compose_q_update_vec(
-                    rigid_update, node_mask[..., None])
-            else:
-                curr_rigids = curr_rigids.compose_tran_update_vec(
-                    rigid_update, node_mask[..., None])
+            curr_rigids = curr_rigids.compose_q_update_vec(
+                rigid_update, node_mask[..., None])
 
             if b < self._ipa_conf.num_blocks-1:
                 edge_embed = self.trunk[f'edge_transition_{b}'](
@@ -113,10 +104,7 @@ class FlowModel(nn.Module):
         curr_rigids = self.rigids_nm_to_ang(curr_rigids)
         pred_trans = curr_rigids.get_trans()
         pred_rots = curr_rigids.get_rots()
-        if self._model_conf.predict_rot_vf:
-            rots_vf = self._rot_vf_head(node_embed)
-        else:
-            rots_vf = so3_utils.calc_rot_vf(rotmats_t, pred_rots.get_rot_mats())
+        rots_vf = so3_utils.calc_rot_vf(rotmats_t, pred_rots.get_rot_mats())
         rots_vf *= node_mask[..., None]
 
         return {
