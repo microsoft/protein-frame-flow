@@ -1,6 +1,8 @@
 import math
 import torch
 from torch.nn import functional as F
+import numpy as np
+from data import utils as du
 
 
 def calc_distogram(pos, min_bin, max_bin, num_bins):
@@ -104,3 +106,25 @@ def calc_rbf(ca_dists, num_rbf, D_min=1e-3, D_max=22.):
     D_mu = D_mu.view([1,1,1,-1])
     D_sigma = (D_max - D_min) / num_rbf
     return torch.exp(-((ca_dists - D_mu) / D_sigma)**2)
+
+
+def t_stratified_loss(batch_t, batch_loss, num_bins=4, loss_name=None):
+    """Stratify loss by binning t."""
+    batch_t = du.to_numpy(batch_t)
+    batch_loss = du.to_numpy(batch_loss)
+    flat_losses = batch_loss.flatten()
+    flat_t = batch_t.flatten()
+    bin_edges = np.linspace(0.0, 1.0 + 1e-3, num_bins+1)
+    bin_idx = np.sum(bin_edges[:, None] <= flat_t[None, :], axis=0) - 1
+    t_binned_loss = np.bincount(bin_idx, weights=flat_losses)
+    t_binned_n = np.bincount(bin_idx)
+    stratified_losses = {}
+    if loss_name is None:
+        loss_name = 'loss'
+    for t_bin in np.unique(bin_idx).tolist():
+        bin_start = bin_edges[t_bin]
+        bin_end = bin_edges[t_bin+1]
+        t_range = f'{loss_name} t=[{bin_start:.2f},{bin_end:.2f})'
+        range_loss = t_binned_loss[t_bin] / t_binned_n[t_bin]
+        stratified_losses[t_range] = range_loss
+    return stratified_losses

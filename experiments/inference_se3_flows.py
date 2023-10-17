@@ -81,6 +81,7 @@ from analysis import metrics
 from data import utils as du
 from omegaconf import DictConfig, OmegaConf
 from openfold.utils.superimposition import superimpose
+from data.interpolant import Interpolant
 import esm
 
 from experiments import utils as eu
@@ -97,30 +98,12 @@ WANDB_TABLE_COLS = [
 ]
 
 
-def _create_template_feats(num_res, device):
-    return {        
-        'res_mask': torch.ones(num_res, device=device)[None],
-        'res_idx': torch.arange(1, num_res+1, device=device)[None],
-    }
-
-
 def _parse_designable(result_df):
     total_samples = result_df.shape[0]
-    sctm_designable = (result_df.tm_score > 0.5).sum()
-    sctm_confident = ((result_df.tm_score > 0.5) & (result_df.mean_plddt > 70)).sum()
     scrmsd_designable = (result_df.rmsd < 2.0).sum()
-    scrmsd_confident = ((result_df.rmsd < 2.0) & (result_df.mean_plddt > 70)).sum()
-    return pd.DataFrame(data={
-        'scTM designable': sctm_designable,
-        'scTM confident': sctm_confident,
-        'scTM designable percent': sctm_designable / total_samples,
-        'scTM confident percent': sctm_confident / total_samples, 
-
+    return pd.DataFrame(data={ 
         'scRMSD designable': scrmsd_designable,
-        'scRMSD confident': scrmsd_confident,
         'scRMSD designable percent': scrmsd_designable / total_samples, 
-        'scRMSD confident percent': scrmsd_confident / total_samples, 
-
         'Helix percent': result_df.helix_percent.sum() / total_samples,
         'Stand percent': result_df.strand_percent.sum() / total_samples,
     }, index=[0])
@@ -161,64 +144,86 @@ class Sampler:
         log.info(f'Using device: {self.device}')
 
         # Set-up ckpt model
-        self._model = FlowModule.load_from_checkpoint(
+        flow_module = FlowModule.load_from_checkpoint(
             checkpoint_path=ckpt_path,
             model_cfg=self._cfg.model,
             experiment_cfg=self._cfg.experiment,
             map_location=self.device
-        ) 
-        self._model.model = self._model.model.to(self.device)
+        )
+        self._model = flow_module.model.to(self.device)
         self._model.eval()
         self._model_ckpt = torch.load(ckpt_path, map_location=self.device)
 
+        # Set-up interpolant.
+        self._interpolant = Interpolant(self._infer_cfg.interpolant)
+        self._interpolant.set_device(self.device)
+
         # Set-up directories to write results to
-        output_base_dir = self._infer_cfg.output_dir
-        ckpt_name = '_'.join(ckpt_path.replace('.ckpt', '').split('/')[-3:])
-        mpnn_name = 'ca_mpnn' if cfg.inference.use_ca_pmpnn else 'frame_mpnn'
-        interpolant_name = 'sde' if cfg.inference.do_sde else 'ode'
-        vf_scale = 'temp_1' if cfg.inference.vf_scale is None else cfg.inference.vf_scale
-        noise_scale = cfg.inference.sde_noise_scale
-        if self._infer_cfg.name is None:
-            self._output_dir = os.path.join(
-                output_base_dir, ckpt_name,
-                f'ts_{self._infer_cfg.num_timesteps}',
-                mpnn_name,
-                vf_scale,
-                interpolant_name,
-                f'NS_{noise_scale}'
-            )
-        else:
-            self._output_dir = os.path.join(output_base_dir, self._infer_cfg.name) 
-        os.makedirs(self._output_dir, exist_ok=True)
+        ckpt_name = '/'.join(ckpt_path.replace('.ckpt', '').split('/')[-3:])
+        self._output_dir = os.path.join(
+            self._infer_cfg.output_dir, ckpt_name, self._infer_cfg.name)
+        os.makedirs(self._output_dir, exist_ok=self._infer_cfg.overwrite)
         log.info(f'Saving results to {self._output_dir}')
         config_path = os.path.join(self._output_dir, 'config.yaml')
         with open(config_path, 'w') as f:
             OmegaConf.save(config=self._cfg, f=f)
         log.info(f'Saving inference config to {config_path}')
 
-        # Load models and experiment
+        # Load ESM model and experiment
         torch.hub.set_dir(self._infer_cfg.pt_hub_dir)
         self._folding_model = esm.pretrained.esmfold_v1().eval()
         self._folding_model = self._folding_model.to(self.device)
 
         # Set-up wandb
-        if self._infer_cfg.name is None:
-            wandb_name = f'{ckpt_name}_{interpolant_name}_ts_{self._infer_cfg.num_timesteps}_{vf_scale}_NS_{noise_scale}'
-        else:
-            wandb_name = self._infer_cfg.name
         if self._infer_cfg.wandb_enable:
             cfg_dict = OmegaConf.to_container(cfg, resolve=True)
             wandb.init(
                 config=dict(eu.flatten_dict(cfg_dict)),
-                name=wandb_name,
+                name=f'{ckpt_name}_{self._infer_cfg.name}',
                 **self._infer_cfg.wandb
             )
 
+    def _run_sampling(self, *, num_batch, num_res, sample_dir, sample_id):
+        atom37_traj, model_traj, _ = self._interpolant.sample(
+            num_batch, num_res, self._model)
+        traj_paths = au.save_traj(
+            np.flip(du.to_numpy(torch.concat(atom37_traj, dim=0)), axis=0),
+            np.flip(du.to_numpy(torch.concat(model_traj, dim=0)), axis=0),
+            np.ones(num_res),
+            output_dir=sample_dir
+        )
+
+        # Run self-consistency
+        sc_output_dir = os.path.join(sample_dir, 'self_consistency')
+        pdb_path = traj_paths['sample_path']
+        os.makedirs(sc_output_dir, exist_ok=True)
+        shutil.copy(pdb_path, os.path.join(
+            sc_output_dir, os.path.basename(pdb_path)))
+        sc_results = self.run_self_consistency(
+            sc_output_dir,
+            pdb_path,
+            motif_mask=None
+        )
+        sc_results['length'] = num_res
+        sc_results['sample_id'] = sample_id
+        del sc_results['header']
+        del sc_results['sequence']
+
+        # Select the top sample
+        top_sample = sc_results.sort_values('rmsd', ascending=True).iloc[:1]
+
+        # Compute secondary structure metrics
+        sample_dict = top_sample.iloc[0].to_dict()
+        ss_metrics = metrics.calc_mdtraj_metrics(sample_dict['sample_pdb_path'])
+        top_sample['helix_percent'] = ss_metrics['helix_percent']
+        top_sample['strand_percent'] = ss_metrics['strand_percent']
+        
+        return top_sample
+
     def _within_length_sampling(self, length_dir, sample_length):
         length_top_samples = []
-        for sample_i in range(self._samples_cfg.samples_per_length):
-            sample_dir = os.path.join(length_dir, f'sample_{sample_i}')
-            sc_output_dir = os.path.join(sample_dir, 'self_consistency')
+        for sample_id in range(self._samples_cfg.samples_per_length):
+            sample_dir = os.path.join(length_dir, f'sample_{sample_id}')
             top_sample_path = os.path.join(sample_dir, 'top_sample.csv')
 
             if not self._samples_cfg.overwrite:
@@ -231,53 +236,19 @@ class Sampler:
                     log.info(f'Skipping {sample_dir}')
                     continue
 
-            log.info(f'On sample {sample_i}')
+            log.info(f'On sample {sample_id}')
 
             # Run sampling
             os.makedirs(sample_dir, exist_ok=True)
-            init_feats = _create_template_feats(sample_length, self.device)
-            atom37_traj, model_traj, _ = self._model.run_sampling(
-                batch=(init_feats, 'sample'),
-                return_traj=True,
-                return_model_outputs=True,
-                num_timesteps=self._infer_cfg.num_timesteps,
-                do_sde=self._infer_cfg.do_sde,
-                vf_scale=self._infer_cfg.vf_scale,
-                sde_noise_scale=self._infer_cfg.sde_noise_scale,
+            top_sample = self._run_sampling(
+                num_batch=1, num_res=sample_length,
+                sample_dir=sample_dir,
+                sample_id=sample_id
             )
-            traj_paths = self.save_traj(
-                np.flip(du.to_numpy(torch.concat(atom37_traj, dim=0)), axis=0),
-                np.flip(du.to_numpy(torch.concat(model_traj, dim=0)), axis=0),
-                np.ones(sample_length),
-                output_dir=sample_dir
-            )
-
-            # Run self-consistency
-            pdb_path = traj_paths['sample_path']
-            os.makedirs(sc_output_dir, exist_ok=True)
-            shutil.copy(pdb_path, os.path.join(
-                sc_output_dir, os.path.basename(pdb_path)))
-            sc_results = self.run_self_consistency(
-                sc_output_dir,
-                pdb_path,
-                motif_mask=None
-            )
-            sc_results['length'] = sample_length
-            sc_results['sample_id'] = sample_i
-            del sc_results['header']
-            del sc_results['sequence']
-
-            # Select the top sample
-            top_sample = sc_results.sort_values('rmsd', ascending=True).iloc[:1]
-            length_top_samples.append(top_sample)
-
-            # Compute secondary structure metrics
-            sample_dict = top_sample.iloc[0].to_dict()
-            ss_metrics = metrics.calc_mdtraj_metrics(sample_dict['sample_pdb_path'])
-            top_sample['helix_percent'] = ss_metrics['helix_percent']
-            top_sample['strand_percent'] = ss_metrics['strand_percent']
             top_sample.to_csv(top_sample_path)
-            log.info(f'Done sample {sample_i}')
+            length_top_samples.append(top_sample)
+            log.info(f'Done sample {sample_id}')
+
         if len(length_top_samples):
             length_top_samples = pd.concat(length_top_samples)
         return length_top_samples
@@ -322,10 +293,6 @@ class Sampler:
                 'length': 'Sample length'
             }
         ).round(2)
-        wandb.log({
-            "scRMSD passing" : wandb.plot.scatter(
-                wandb.Table(dataframe=designable_summary), "Sample length", "scTM designable")
-        })
 
     def run_length_sampling(self):
         """Sets up inference run.
@@ -366,68 +333,6 @@ class Sampler:
                 "Final metrics" : wandb.plot.bar(
                     table, "Metric", "value", title="Final metrics")
             })
-
-    def save_traj(
-            self,
-            bb_prot_traj: np.ndarray,
-            x0_traj: np.ndarray,
-            diffuse_mask: np.ndarray,
-            output_dir: str
-        ):
-        """Writes final sample and reverse diffusion trajectory.
-
-        Args:
-            bb_prot_traj: [T, N, 37, 3] atom37 sampled diffusion states.
-                T is number of time steps. First time step is t=eps,
-                i.e. bb_prot_traj[0] is the final sample after reverse diffusion.
-                N is number of residues.
-            x0_traj: [T, N, 3] x_0 predictions of C-alpha at each time step.
-            aatype: [T, N, 21] amino acid probability vector trajectory.
-            res_mask: [N] residue mask.
-            diffuse_mask: [N] which residues are diffused.
-            output_dir: where to save samples.
-
-        Returns:
-            Dictionary with paths to saved samples.
-                'sample_path': PDB file of final state of reverse trajectory.
-                'traj_path': PDB file os all intermediate diffused states.
-                'x0_traj_path': PDB file of C-alpha x_0 predictions at each state.
-            b_factors are set to 100 for diffused residues and 0 for motif
-            residues if there are any.
-        """
-
-        # Write sample.
-        diffuse_mask = diffuse_mask.astype(bool)
-        sample_path = os.path.join(output_dir, 'sample.pdb')
-        prot_traj_path = os.path.join(output_dir, 'bb_traj.pdb')
-        x0_traj_path = os.path.join(output_dir, 'x0_traj.pdb')
-
-        # Use b-factors to specify which residues are diffused.
-        b_factors = np.tile((diffuse_mask * 100)[:, None], (1, 37))
-
-        sample_path = au.write_prot_to_pdb(
-            bb_prot_traj[0],
-            sample_path,
-            b_factors=b_factors,
-            no_indexing=True
-        )
-        prot_traj_path = au.write_prot_to_pdb(
-            bb_prot_traj,
-            prot_traj_path,
-            b_factors=b_factors,
-            no_indexing=True
-        )
-        x0_traj_path = au.write_prot_to_pdb(
-            x0_traj,
-            x0_traj_path,
-            b_factors=b_factors,
-            no_indexing=True
-        )
-        return {
-            'sample_path': sample_path,
-            'traj_path': prot_traj_path,
-            'x0_traj_path': x0_traj_path,
-        }
 
     def run_self_consistency(
             self,
@@ -474,8 +379,6 @@ class Sampler:
             '--device',
             self.device.replace('cuda:', '')
         ]
-        if self._infer_cfg.use_ca_pmpnn:
-            pmpnn_args.append('--ca_only')
 
         os.makedirs(os.path.join(decoy_pdb_dir, 'seqs'), exist_ok=True)
         process = subprocess.Popen(pmpnn_args, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)

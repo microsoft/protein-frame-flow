@@ -202,6 +202,7 @@ class Interpolant:
             rotmats_t_2 = self._rots_euler_step(
                 d_t, t_1, pred_rotmats_1, rotmats_t_1)
             prot_traj.append((trans_t_2, rotmats_t_2))
+            t_1 = t_2
 
         # We only integrated to min_t, so need to make a final step
         t_1 = ts[-1]

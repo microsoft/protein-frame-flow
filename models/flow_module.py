@@ -5,21 +5,19 @@ import os
 import random
 import wandb
 import numpy as np
-import copy
 import pandas as pd
 import logging
 from pytorch_lightning import LightningModule
 from analysis import metrics 
 from analysis import utils as au
 from models.flow_model import FlowModel
+from models import utils as mu
 from data.interpolant import Interpolant 
 from data import utils as du
 from data import all_atom
 from data import so3_utils
 from data import flow_utils
 from pytorch_lightning.loggers.wandb import WandbLogger
-
-CA_IDX = metrics.CA_IDX
 
 
 class FlowModule(LightningModule):
@@ -164,13 +162,7 @@ class FlowModule(LightningModule):
             trans_1=batch['trans_1'],
             rotmats_1=batch['rotmats_1']
         )[0][-1].numpy()
-        # samples = self.run_sampling(
-        #     batch,
-        #     return_traj=False,
-        #     vf_scale=self._sampling_cfg.vf_scaling,
-        # )[0].numpy()
-        # num_batch, num_res = samples.shape[:2]
-        
+
         batch_metrics = []
         for i in range(num_batch):
 
@@ -189,7 +181,7 @@ class FlowModule(LightningModule):
                 )
             try:
                 mdtraj_metrics = metrics.calc_mdtraj_metrics(saved_path)
-                ca_ca_metrics = metrics.calc_ca_ca_metrics(final_pos[:, CA_IDX])
+                ca_ca_metrics = metrics.calc_ca_ca_metrics(final_pos[:, metrics.CA_IDX])
                 batch_metrics.append((mdtraj_metrics | ca_ca_metrics))
             except Exception:
                 continue
@@ -505,7 +497,7 @@ class FlowModule(LightningModule):
             np.mean(du.to_numpy(batch_t)),
             prog_bar=False, batch_size=num_batch)
         for loss_name, loss_dict in batch_losses.items():
-            stratified_losses = t_stratified_loss(
+            stratified_losses = mu.t_stratified_loss(
                 batch_t, loss_dict, loss_name=loss_name)
             for k,v in stratified_losses.items():
                 self._log_scalar(
@@ -532,43 +524,3 @@ class FlowModule(LightningModule):
             params=self.model.parameters(),
             **self._exp_cfg.optimizer
         )
-
-    
-def t_stratified_loss(batch_t, batch_loss, num_bins=4, loss_name=None):
-    """Stratify loss by binning t."""
-    batch_t = du.to_numpy(batch_t)
-    batch_loss = du.to_numpy(batch_loss)
-    flat_losses = batch_loss.flatten()
-    flat_t = batch_t.flatten()
-    bin_edges = np.linspace(0.0, 1.0 + 1e-3, num_bins+1)
-    bin_idx = np.sum(bin_edges[:, None] <= flat_t[None, :], axis=0) - 1
-    t_binned_loss = np.bincount(bin_idx, weights=flat_losses)
-    t_binned_n = np.bincount(bin_idx)
-    stratified_losses = {}
-    if loss_name is None:
-        loss_name = 'loss'
-    for t_bin in np.unique(bin_idx).tolist():
-        bin_start = bin_edges[t_bin]
-        bin_end = bin_edges[t_bin+1]
-        t_range = f'{loss_name} t=[{bin_start:.2f},{bin_end:.2f})'
-        range_loss = t_binned_loss[t_bin] / t_binned_n[t_bin]
-        stratified_losses[t_range] = range_loss
-    return stratified_losses
-
-def get_temp_scale(vf_scale, t_1):
-    if vf_scale == 'forward_time':
-        temp_scale = 10.0 * t_1
-    elif vf_scale == 'reverse_time':
-        temp_scale = 10.0 * (1 - t_1)
-    elif vf_scale == 'reverse_time_5':
-        temp_scale = 5.0 * (1 - t_1)
-    elif vf_scale == 'reverse_time_100':
-        temp_scale = 100.0 * (1 - t_1)
-    elif vf_scale == 'constant':
-        temp_scale = 10.0
-    elif vf_scale is None:
-        temp_scale = 1.0
-    else:
-        raise ValueError(f'Unknown scaling {vf_scale}')
-
-    return temp_scale

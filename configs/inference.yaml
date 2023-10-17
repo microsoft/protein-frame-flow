@@ -4,26 +4,35 @@ defaults:
   - _self_
 
 inference:
-  name: null
+  name: run_${now:%Y-%m-%d}_${now:%H-%M-%S}
+  overwrite: False
   seed: 123
 
-  ckpt_path: ckpt/se3-fm/larger_dataset/2023-10-06_01-15-02/last.ckpt
-
-  # https://wandb.ai/jyim/se3-fm/runs/isk4empk/overview
-  # ckpt_path: ckpt/se3-fm/linear_no_embed_t/2023-10-08_08-51-30/last.ckpt
-
-  # https://wandb.ai/jyim/se3-fm/runs/x83ov2eo/overview
-  # ckpt_path: ckpt/se3-fm/baseline/2023-10-06_01-14-03/last.ckpt
+  # https://wandb.ai/jyim/se3-fm/runs/7rh0czgk 
+  ckpt_path: ckpt/se3-fm/refactor_with_align/2023-10-15_18-12-18/last.ckpt
   
   use_gpu: True
-  use_ca_pmpnn: False
 
-  # Number of steps.
-  num_timesteps: 100
-
-  do_sde: False
-  sde_noise_scale: 1.0
-  vf_scale: reverse_time_5
+  interpolant:
+    min_t: 1e-3
+    rots:
+      corrupt: True
+      training_prior: null
+      train_schedule: null
+      sample_schedule: exp
+      exp_rate: 10
+      igso3_min_sigma: 0.1
+      igso3_max_sigma: 1.5
+    trans:
+      corrupt: True
+      pre_align: True
+      train_schedule: null
+      sample_schedule: linear
+      sample_temp: 1.0
+    sampling:
+      num_timesteps: 100
+      do_sde: False
+    self_condition:
 
   # Directory of software, weights, and outputs.
   pt_hub_dir: ./.cache/torch/
@@ -33,11 +42,6 @@ inference:
   wandb_enable: True
   wandb:
     project: se3-fm-inference
-    tags: [
-      'ts_${inference.num_timesteps}',
-      'ca_mpnn_${inference.use_ca_pmpnn}',
-      'sde_${inference.do_sde}'
-    ]
 
   samples:
     # Number of backbone samples per sequence length.
@@ -45,10 +49,10 @@ inference:
     # Number of ESMFdold samples per backbone sample.
     seq_per_sample: 8
     # Minimum sequence length to sample.
-    min_length: 100
+    min_length: 60
     # Maximum sequence length to sample.
-    max_length: 256
+    max_length: 128
     # gap between lengths to sample. i.e. this script will sample all lengths
     # in range(min_length, max_length, length_step)
-    length_step: 5
+    length_step: 1
     overwrite: False
