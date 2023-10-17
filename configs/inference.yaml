@@ -7,11 +7,14 @@ inference:
   name: null
   seed: 123
 
+  # https://wandb.ai/jyim/se3-fm/runs/62elghtn/overview
+  # ckpt_path: ckpt/se3-fm/baseline/2023-10-15_10-55-55/last.ckpt
+
   # https://wandb.ai/jyim/se3-fm/runs/isk4empk/overview
-  ckpt_path: ckpt/se3-fm/linear_no_embed_t/2023-10-08_08-51-30/last.ckpt
+  # ckpt_path: ckpt/se3-fm/linear_no_embed_t/2023-10-08_08-51-30/last.ckpt
 
   # https://wandb.ai/jyim/se3-fm/runs/x83ov2eo/overview
-  # ckpt_path: ckpt/se3-fm/baseline/2023-10-06_01-14-03/last.ckpt
+  ckpt_path: ckpt/se3-fm/baseline/2023-10-06_01-14-03/last.ckpt
   
   use_gpu: True
   use_ca_pmpnn: False
@@ -21,7 +24,7 @@ inference:
 
   do_sde: False
   sde_noise_scale: 1.0
-  vf_scale: reverse_time_5
+  vf_scale: reverse_time
 
   # Directory of software, weights, and outputs.
   pt_hub_dir: ./.cache/torch/
