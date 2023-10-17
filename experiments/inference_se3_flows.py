@@ -186,7 +186,7 @@ class Sampler:
     def _run_sampling(self, *, num_batch, num_res, sample_dir, sample_id):
         atom37_traj, model_traj, _ = self._interpolant.sample(
             num_batch, num_res, self._model)
-        traj_paths = au.save_traj(
+        traj_paths = eu.save_traj(
             np.flip(du.to_numpy(torch.concat(atom37_traj, dim=0)), axis=0),
             np.flip(du.to_numpy(torch.concat(model_traj, dim=0)), axis=0),
             np.ones(num_res),
@@ -293,6 +293,7 @@ class Sampler:
                 'length': 'Sample length'
             }
         ).round(2)
+        # TODO: Add chart showing what length we're on.
 
     def run_length_sampling(self):
         """Sets up inference run.

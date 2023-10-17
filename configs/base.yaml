@@ -1,7 +1,7 @@
 data:
   # CSV for path and metadata to training examples.
   dataset:
-    max_num_res: 128
+    max_num_res: 256
     min_num_res: 0
     subset: null
     samples_per_eval_length: 5
@@ -13,7 +13,7 @@ data:
     prefetch_factor: 10
   sampler:
     max_batch_size: 100
-    max_num_res_squared: 500_000
+    max_num_res_squared: 600_000
     use_batch_repeats: False
     num_batches: null
 
@@ -21,15 +21,14 @@ interpolant:
   min_t: 1e-3
   rots:
     corrupt: True
-    training_prior: igso3
     train_schedule: linear
     sample_schedule: exp
     exp_rate: 10
-    igso3_min_sigma: 0.1
-    igso3_max_sigma: 1.5
   trans:
     corrupt: True
     pre_align: True
+    batch_ot: False
+    num_noise_ot: 1
     train_schedule: linear
     sample_schedule: linear
     sample_temp: 1.0

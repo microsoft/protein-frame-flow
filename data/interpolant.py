@@ -4,6 +4,7 @@ from data import utils as du
 from scipy.spatial.transform import Rotation
 from data import all_atom
 import copy
+from scipy.optimize import linear_sum_assignment
 
 
 def _centered_gaussian(num_batch, num_res, device):
@@ -25,14 +26,6 @@ class Interpolant:
         self._trans_cfg = cfg.trans
         self._sample_cfg = cfg.sampling
 
-        if self._rots_cfg.training_prior == 'igso3':
-            sigma_grid = torch.linspace(
-                self._rots_cfg.igso3_min_sigma,
-                self._rots_cfg.igso3_max_sigma,
-                1000
-            )
-            self._igso3 = so3_utils.SampleIGSO3(1000, sigma_grid)
-
     def set_device(self, device):
         self._device = device
 
@@ -44,9 +37,13 @@ class Interpolant:
         trans_nm_0 = _centered_gaussian(*res_mask.shape, self._device)
         trans_0 = trans_nm_0 * du.NM_TO_ANG_SCALE
         if self._trans_cfg.pre_align:
+            if self._trans_cfg.batch_ot:
+                raise ValueError('Using pre-align and BatchOT.')
             trans_0, _, _ = du.batch_align_structures(
                 trans_0, trans_1, mask=res_mask
             )
+        if self._trans_cfg.batch_ot:
+            trans_0 = self._batch_ot(trans_0, trans_1, res_mask)
         if self._trans_cfg.train_schedule == 'linear':
             trans_t = (1 - t[..., None]) * trans_0 + t[..., None] * trans_1
         else:
@@ -55,24 +52,31 @@ class Interpolant:
         # TODO: Try BatchOT
         return trans_t * res_mask[..., None]
     
+    def _batch_ot(self, trans_0, trans_1, res_mask):
+        num_batch, num_res = trans_0.shape[:2]
+        num_noise = self._trans_cfg.num_noise_ot
+        noise_idx, gt_idx = torch.where(
+            torch.ones(num_noise, num_batch))
+        batch_nm_0 = trans_0[noise_idx]
+        batch_nm_1 = trans_1[gt_idx]
+        batch_mask = res_mask[gt_idx]
+        aligned_nm_0, aligned_nm_1, _ = du.batch_align_structures(
+            batch_nm_0, batch_nm_1, mask=batch_mask
+        ) 
+        aligned_nm_0 = aligned_nm_0.reshape(num_noise, num_batch, num_res, 3)
+        aligned_nm_1 = aligned_nm_1.reshape(num_noise, num_batch, num_res, 3)
+        
+        # Compute cost matrix of aligned noise to ground truth
+        batch_mask = batch_mask.reshape(num_noise, num_batch, num_res)
+        cost_matrix = torch.sum(
+            torch.linalg.norm(aligned_nm_0 - aligned_nm_1, dim=-1), dim=-1
+        ) / torch.sum(batch_mask, dim=-1)
+        noise_perm, gt_perm = linear_sum_assignment(du.to_numpy(cost_matrix))
+        return aligned_nm_0[(tuple(gt_perm), tuple(noise_perm))]
+    
     def _corrupt_rotmats(self, rotmats_1, t, res_mask):
         num_batch, num_res = res_mask.shape
-        if self._rots_cfg.training_prior == 'uniform':
-            rotmats_0 = _uniform_so3(num_batch, num_res, self._device)
-        elif self._rots_cfg.training_prior == 'igso3':
-            noisy_rotmats = self._igso3.sample(
-                torch.tensor(
-                    [self._rots_cfg.igso3_max_sigma]),
-                num_batch*num_res
-            ).to(self._device)
-            noisy_rotmats = noisy_rotmats.reshape(num_batch, num_res, 3, 3)
-            rotmats_0 = torch.einsum(
-                "...ij,...jk->...ik", rotmats_1, noisy_rotmats)
-        else:
-            raise ValueError(
-                f'Unknown SO3 prior {self._exp_cfg.so3_prior}'
-            )
-
+        rotmats_0 = _uniform_so3(num_batch, num_res, self._device)
         so3_schedule = self._rots_cfg.train_schedule
         if so3_schedule == 'exp':
             so3_t = 1 - torch.exp(-t*self._rots_cfg.exp_rate)

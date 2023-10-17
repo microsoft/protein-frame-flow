@@ -2,19 +2,25 @@ defaults:
   - base
   - _self_
 
-# data:
-  # dataset:
-    # max_num_res: 256
-    # min_num_res: 0
-  # sampler:
+data:
+  dataset:
+    max_num_res: 256
+    min_num_res: 0
+  sampler:
     # max_batch_size: 128
-    # max_num_res_squared: 800_000
+    max_num_res_squared: 800_000
+
+interpolant:
+  trans:
+    corrupt: True
+    pre_align: True
+    batch_ot: False
 
 experiment:
   debug: False
 
   # num_devices: 1
   wandb:
-    name: refactor_with_align
+    name: scope_256
 
-  warm_start: ./ckpt/se3-fm/refactor_with_align/2023-10-15_16-55-30/last.ckpt
+  # warm_start: ./ckpt/se3-fm/refactor_with_align/2023-10-15_16-55-30/last.ckpt
