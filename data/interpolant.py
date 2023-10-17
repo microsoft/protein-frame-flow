@@ -49,25 +49,23 @@ class Interpolant:
         else:
             raise ValueError(
                 f'Unknown trans schedule {self._trans_cfg.train_schedule}')
-        # TODO: Try BatchOT
         return trans_t * res_mask[..., None]
     
     def _batch_ot(self, trans_0, trans_1, res_mask):
         num_batch, num_res = trans_0.shape[:2]
-        num_noise = self._trans_cfg.num_noise_ot
         noise_idx, gt_idx = torch.where(
-            torch.ones(num_noise, num_batch))
+            torch.ones(num_batch, num_batch))
         batch_nm_0 = trans_0[noise_idx]
         batch_nm_1 = trans_1[gt_idx]
         batch_mask = res_mask[gt_idx]
         aligned_nm_0, aligned_nm_1, _ = du.batch_align_structures(
             batch_nm_0, batch_nm_1, mask=batch_mask
         ) 
-        aligned_nm_0 = aligned_nm_0.reshape(num_noise, num_batch, num_res, 3)
-        aligned_nm_1 = aligned_nm_1.reshape(num_noise, num_batch, num_res, 3)
+        aligned_nm_0 = aligned_nm_0.reshape(num_batch, num_batch, num_res, 3)
+        aligned_nm_1 = aligned_nm_1.reshape(num_batch, num_batch, num_res, 3)
         
         # Compute cost matrix of aligned noise to ground truth
-        batch_mask = batch_mask.reshape(num_noise, num_batch, num_res)
+        batch_mask = batch_mask.reshape(num_batch, num_batch, num_res)
         cost_matrix = torch.sum(
             torch.linalg.norm(aligned_nm_0 - aligned_nm_1, dim=-1), dim=-1
         ) / torch.sum(batch_mask, dim=-1)
