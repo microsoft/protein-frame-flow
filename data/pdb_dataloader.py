@@ -184,23 +184,24 @@ class LengthBatcher:
         self._sampler_cfg = sampler_cfg
         self._data_csv = metadata_csv
         if sampler_cfg.num_batches is None:
-            self._num_batches = len(self._data_csv)
+            # Each replica needs the same number of batches. We set the number
+            # of batches to arbitrarily be the number of examples per replica.
+            self._num_batches = math.ceil(len(self._data_csv) / self.num_replicas)
         else:
             self._num_batches = sampler_cfg.num_batches
         self._data_csv['index'] = list(range(len(self._data_csv)))
         self.seed = seed
         self.shuffle = shuffle
         self.epoch = 0
-        self.num_examples = math.ceil(len(self._data_csv) / self.num_replicas)
         self.max_batch_size =  self._sampler_cfg.max_batch_size
-        self._rng = torch.Generator()
-
-        self._create_batches()
         self._log.info(f'Created dataloader rank {self.rank+1} out of {self.num_replicas}')
         
     def _replica_epoch_batches(self):
+        # Make sure all replicas share the same seed on each epoch.
+        rng = torch.Generator()
+        rng.manual_seed(self.seed + self.epoch)
         if self.shuffle:
-            indices = torch.randperm(len(self._data_csv), generator=self._rng).tolist()
+            indices = torch.randperm(len(self._data_csv), generator=rng).tolist()
         else:
             indices = list(range(len(self._data_csv)))
 
@@ -229,7 +230,7 @@ class LengthBatcher:
                     sample_order.append(batch_indices)
         
         # Remove any length bias.
-        new_order = torch.randperm(len(sample_order), generator=self._rng).numpy().tolist()
+        new_order = torch.randperm(len(sample_order), generator=rng).numpy().tolist()
         return [sample_order[i] for i in new_order]
 
     def _create_batches(self):
@@ -247,13 +248,9 @@ class LengthBatcher:
         self.sample_order = all_batches
 
     def __iter__(self):
-        if self.epoch > 0:
-            self._create_batches()
+        self._create_batches()
+        self.epoch += 1
         return iter(self.sample_order)
-
-    def set_epoch(self, epoch):
-        self.epoch = epoch
-        self._rng.manual_seed(self.seed + self.epoch)
 
     def __len__(self):
         return len(self.sample_order)

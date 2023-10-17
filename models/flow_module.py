@@ -45,9 +45,6 @@ class FlowModule(LightningModule):
     def on_train_start(self):
         self._epoch_start_time = time.time()
         
-    def on_train_epoch_start(self):
-        self.trainer.train_dataloader.batch_sampler.set_epoch(self.current_epoch)
-        
     def on_train_epoch_end(self):
         epoch_time = (time.time() - self._epoch_start_time) / 60.0
         self.log(
