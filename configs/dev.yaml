@@ -8,7 +8,7 @@ data:
     min_num_res: 0
   sampler:
     max_batch_size: 100
-    max_num_res_squared: 500_000
+    max_num_res_squared: 600_000
 
 interpolant:
   trans:
@@ -19,12 +19,13 @@ interpolant:
 experiment:
   debug: False
 
-  # num_devices: 1
+  num_devices: 2
   wandb:
-    name: scope_128_new_batching
-    # name: scope_128_big_batch
+    # name: scope_128_new_batching
+    name: scope_128_big_batch_2
 
-  # trainer:
-  #   accumulate_grad_batches: 4
+  trainer:
+    accumulate_grad_batches: 2
+    check_val_every_n_epoch: 2
 
   # warm_start: ./ckpt/se3-fm/refactor_with_align/2023-10-15_16-55-30/last.ckpt

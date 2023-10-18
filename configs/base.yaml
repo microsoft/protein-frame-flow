@@ -3,6 +3,8 @@ data:
   dataset:
     max_num_res: 128
     min_num_res: 0
+    min_plddt_percent: null
+    max_coil_percent: null
     subset: null
     samples_per_eval_length: 5
     num_eval_lengths: 8
@@ -81,7 +83,7 @@ experiment:
     noise_per_sample: 1
     permute: False
   training:
-    self_correcting: False
+    min_plddt_mask: null
     loss: se3_vf_loss
     bb_atom_scale: 0.1
     translation_loss_t_upper: 1.0

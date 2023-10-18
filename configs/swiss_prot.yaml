@@ -1,0 +1,24 @@
+defaults:
+  - base
+  - _self_
+
+data:
+  dataset:
+    max_num_res: 512
+    min_num_res: 60
+    min_plddt_percent: 0.7
+    max_coil_percent: 0.7
+    csv_path: /Mounts/rbg-storage1/users/jyim/large_data/swiss_prot_pkls/metadata.csv
+  sampler:
+    max_batch_size: 100
+    max_num_res_squared: 600_000
+
+experiment:
+  debug: False
+
+  num_devices: 2
+  wandb:
+    name: swiss_prot
+
+  training:
+    min_plddt_mask: 0.8

@@ -59,6 +59,9 @@ class FlowModule(LightningModule):
     def model_step(self, noisy_batch: Any):
         training_cfg = self._exp_cfg.training
         res_mask = noisy_batch['res_mask']
+        if training_cfg.min_plddt_mask is not None:
+            loss_mask = noisy_batch['res_plddt'] > training_cfg.min_plddt_mask
+            res_mask *= loss_mask
         num_batch, num_res = res_mask.shape
 
         # Ground truth labels
@@ -474,6 +477,8 @@ class FlowModule(LightningModule):
         step_start_time = time.time()
         self.interpolant.set_device(batch['res_mask'].device)
         noisy_batch = self.interpolant.corrupt_batch(batch)
+        # TODO: Add motif-scaffolding.
+        noisy_batch['diffuse_mask'] = batch['res_mask']
         if self._interpolant_cfg.self_condition and random.random() > 0.5:
             with torch.no_grad():
                 model_sc = self.model(noisy_batch)

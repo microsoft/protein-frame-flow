@@ -88,6 +88,12 @@ class PdbDataset(Dataset):
         self.raw_csv = pdb_csv
         pdb_csv = pdb_csv[pdb_csv.modeled_seq_len <= self.dataset_cfg.max_num_res]
         pdb_csv = pdb_csv[pdb_csv.modeled_seq_len >= self.dataset_cfg.min_num_res]
+        if self.dataset_cfg.min_plddt_percent is not None:
+            pdb_csv = pdb_csv[
+                pdb_csv.num_confident_plddt > self.dataset_cfg.min_plddt_percent]
+        if self.dataset_cfg.max_coil_percent is not None:
+            pdb_csv = pdb_csv[
+                pdb_csv.coil_percent < self.dataset_cfg.max_coil_percent]            
         if self.dataset_cfg.subset is not None:
             pdb_csv = pdb_csv.iloc[:self.dataset_cfg.subset]
         pdb_csv = pdb_csv.sort_values('modeled_seq_len', ascending=False)
@@ -138,6 +144,7 @@ class PdbDataset(Dataset):
         trans_1 = rigids_1.get_trans()
         res_idx = processed_feats['residue_index']
         return {
+            'res_plddt': processed_feats['b_factors'][:, 1],
             'aatype': chain_feats['aatype'],
             'res_idx': res_idx - np.min(res_idx) + 1,
             'rotmats_1': rotmats_1,
