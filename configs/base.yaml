@@ -47,6 +47,7 @@ model:
     c_pos_emb: 128
     c_timestep_emb: 128
     embed_t: True
+    embed_diffuse_mask: False
     max_num_res: 2000
     timestep_int: 1000
   edge_features:

@@ -13,8 +13,8 @@ data:
 interpolant:
   trans:
     # corrupt: True
-    pre_align: True
-    batch_ot: False
+    pre_align: False # True
+    batch_ot: True
 
 experiment:
   debug: False
@@ -22,10 +22,13 @@ experiment:
   num_devices: 2
   wandb:
     # name: scope_128_new_batching
-    name: scope_128_big_batch_2
+    # name: scope_128_big_batch_2
+    name: scope_128_warm_start_ot
 
   trainer:
     accumulate_grad_batches: 2
     check_val_every_n_epoch: 2
 
+  warm_start: ./ckpt/se3-fm/scope_128_big_batch/2023-10-17_18-01-46/last.ckpt
+  # warm_start: ./ckpt/se3-fm/scope_128_big_batch_2/2023-10-17_18-28-28/last.ckpt
   # warm_start: ./ckpt/se3-fm/refactor_with_align/2023-10-15_16-55-30/last.ckpt

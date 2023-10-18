@@ -10,15 +10,33 @@ data:
     max_coil_percent: 0.7
     csv_path: /Mounts/rbg-storage1/users/jyim/large_data/swiss_prot_pkls/metadata.csv
   sampler:
-    max_batch_size: 100
-    max_num_res_squared: 600_000
+    max_batch_size: 128
+    max_num_res_squared: 800_000
+
+model:
+  node_features:
+    embed_diffuse_mask: True
+
+interpolant:
+  trans:
+    # corrupt: True
+    pre_align: False #True
+    batch_ot: True
 
 experiment:
   debug: False
 
-  num_devices: 2
+  num_devices: 4
   wandb:
     name: swiss_prot
+
+  trainer:
+    check_val_every_n_epoch: 1
+    accumulate_grad_batches: 2
+  
+  checkpointer:
+    every_n_epochs: null
+    every_n_train_steps: 10000
 
   training:
     min_plddt_mask: 0.8

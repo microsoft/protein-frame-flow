@@ -15,6 +15,8 @@ class NodeFeatureNet(nn.Module):
         embed_size = self._cfg.c_pos_emb
         if self._cfg.embed_t:
             embed_size += self._cfg.c_timestep_emb
+        if self._cfg.embed_diffuse_mask:
+            embed_size += 1
         self.linear = nn.Linear(embed_size, self.c_s)
 
     def forward(self, timesteps, mask):
@@ -33,6 +35,8 @@ class NodeFeatureNet(nn.Module):
         # [b, n_res, c_timestep_emb]
         # timesteps are between 0 and 1. Convert to integers.
         input_feats = [pos_emb]
+        if self._cfg.embed_diffuse_mask:
+            input_feats.append(mask[..., None])
         if self._cfg.embed_t:
             # timesteps_int = torch.floor(
             #     timesteps * self._cfg.timestep_int).to(device)
@@ -41,11 +45,6 @@ class NodeFeatureNet(nn.Module):
                 self.c_timestep_emb,
                 max_positions=2056
             )[:, None, :].repeat(1, num_res, 1)
-            # timestep_emb = sinusoidal_encoding(
-            #     timesteps_int.view(b, 1),
-            #     self._cfg.timestep_int,	
-            #     self.c_timestep_emb
-            # )
             timestep_emb = timestep_emb * mask.unsqueeze(-1)
             input_feats.append(timestep_emb)
         return self.linear(torch.cat(input_feats, dim=-1))

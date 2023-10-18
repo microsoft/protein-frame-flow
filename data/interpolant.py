@@ -25,6 +25,8 @@ class Interpolant:
         self._rots_cfg = cfg.rots
         self._trans_cfg = cfg.trans
         self._sample_cfg = cfg.sampling
+        sigma_grid = torch.linspace(0.1, 1.5, 1000)
+        self._igso3 = so3_utils.SampleIGSO3(1000, sigma_grid)
 
     def set_device(self, device):
         self._device = device
@@ -74,7 +76,15 @@ class Interpolant:
     
     def _corrupt_rotmats(self, rotmats_1, t, res_mask):
         num_batch, num_res = res_mask.shape
-        rotmats_0 = _uniform_so3(num_batch, num_res, self._device)
+        # rotmats_0 = _uniform_so3(num_batch, num_res, self._device)
+        noisy_rotmats = self._igso3.sample(
+            torch.tensor([1.5]),
+            num_batch*num_res
+        ).to(self._device)
+        noisy_rotmats = noisy_rotmats.reshape(num_batch, num_res, 3, 3)
+        rotmats_0 = torch.einsum(
+            "...ij,...jk->...ik", rotmats_1, noisy_rotmats)
+        
         so3_schedule = self._rots_cfg.train_schedule
         if so3_schedule == 'exp':
             so3_t = 1 - torch.exp(-t*self._rots_cfg.exp_rate)
