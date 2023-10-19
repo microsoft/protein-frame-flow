@@ -8,7 +8,7 @@ data:
     min_num_res: 60
     min_plddt_percent: 0.7
     max_coil_percent: 0.7
-    csv_path: /Mounts/rbg-storage1/users/jyim/large_data/swiss_prot_pkls/metadata.csv
+    csv_path: swiss_prot/swiss_prot_pkls/metadata.csv
   sampler:
     max_batch_size: 128
     max_num_res_squared: 800_000
@@ -19,8 +19,7 @@ model:
 
 interpolant:
   trans:
-    # corrupt: True
-    pre_align: False #True
+    pre_align: False
     batch_ot: True
 
 experiment:
@@ -40,3 +39,5 @@ experiment:
 
   training:
     min_plddt_mask: 0.8
+
+  warm_start: ckpt/se3-fm/swiss_prot/2023-10-18_11-38-52/last.ckpt

@@ -28,8 +28,8 @@ interpolant:
     exp_rate: 10
   trans:
     corrupt: True
-    pre_align: True
-    batch_ot: False
+    pre_align: False
+    batch_ot: True
     train_schedule: linear
     sample_schedule: linear
     sample_temp: 1.0

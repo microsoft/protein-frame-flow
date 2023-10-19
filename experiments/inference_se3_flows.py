@@ -162,7 +162,7 @@ class Sampler:
         ckpt_name = '/'.join(ckpt_path.replace('.ckpt', '').split('/')[-3:])
         self._output_dir = os.path.join(
             self._infer_cfg.output_dir, ckpt_name, self._infer_cfg.name)
-        os.makedirs(self._output_dir, exist_ok=self._infer_cfg.overwrite)
+        os.makedirs(self._output_dir, exist_ok=True)
         log.info(f'Saving results to {self._output_dir}')
         config_path = os.path.join(self._output_dir, 'config.yaml')
         with open(config_path, 'w') as f:
