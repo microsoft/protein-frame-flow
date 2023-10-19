@@ -300,6 +300,7 @@ dependencies:
       - lit==16.0.6
       - markdown-it-py==3.0.0
       - mdurl==0.1.2
+      - mizani==0.9.3
       - ml-collections==0.1.1
       - mpmath==1.3.0
       - msgpack==1.0.5
@@ -323,6 +324,7 @@ dependencies:
       - ordered-set==4.1.0
       - pathtools==0.1.2
       - plotly==5.16.1
+      - plotnine==0.12.3
       - protobuf==4.24.1
       - pydantic==2.1.1
       - pydantic-core==2.4.0

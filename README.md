@@ -1,12 +1,52 @@
-# Project flower 💮
+# Protein flower 💮
 
 ## Installation
 
-Run experiments
 ```bash
-python -W ignore experiments/train_se3_flows.py
+# Conda environment with dependencies.
+conda env update -n fm --file fm.yaml
+
+# Activate environment
+conda activate fm
+
+# Install local package.
+# Current directory should be flow-matching/
+pip install -e .
 ```
 
+Next log in to Wandb and make an account.
+Authorize Wandb [here](https://wandb.ai/authorize).
+Wandb is necessary to run training and inference.
+
+## Run training
+
+
+```bash
+# Train on SCOPe up to length 128
+python -W ignore experiments/train_se3_flows.py
+
+# Train on SCOPe up to length 256
+python -W ignore experiments/train_se3_flows.py -cn scope_256
+
+# Train on SwissProt up to length 512
+python -W ignore experiments/train_se3_flows.py -cn swiss_prot
+```
+
+## Run inference
+
+```bash
+# Sample 10 sequences per length between 60 and 128
+python -W ignore experiments/inference_se3_flows.py
+```
+
+## To-do
+
+- [] Train on SwissProt
+- [] Add DDP inference
+- [] Add SDE interpolant
+- [] Add translation schedule variant
+- [] Implement inpainting training
+- [] Implement inpainting inference/benchmark
 
 # Contributing
 This project welcomes contributions and suggestions. Most contributions require you to agree to a Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us the rights to use your contribution. For details, visit https://cla.opensource.microsoft.com.
