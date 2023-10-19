@@ -9,12 +9,6 @@ inference:
   seed: 123
 
   ckpt_path: ckpt/se3-fm/scope_128_warm_start_ot/2023-10-18_13-04-51/last.ckpt
-
-  # https://wandb.ai/jyim/se3-fm/runs/82d33095/overview 
-  # ckpt_path: ckpt/se3-fm/scope_128_big_batch_2/2023-10-17_18-28-28/last.ckpt
-
-  # https://wandb.ai/jyim/se3-fm/runs/7rh0czgk 
-  # ckpt_path: ckpt/se3-fm/refactor_with_align/2023-10-15_18-12-18/last.ckpt
   
   use_gpu: True
 
