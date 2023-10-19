@@ -4,17 +4,15 @@ defaults:
   - _self_
 
 inference:
-  # name: run_${now:%Y-%m-%d}_${now:%H-%M-%S}
+  debug: False
+  name: run_${now:%Y-%m-%d}_${now:%H-%M-%S}
   overwrite: False
   seed: 123
 
+  # https://wandb.ai/jyim/se3-fm/runs/p5u6xhx4
   ckpt_path: ckpt/se3-fm/scope_128_warm_start_ot/2023-10-18_13-04-51/last.ckpt
   
   use_gpu: True
-
-  # DDP settings.
-  num_gpus: 4
-  batch_size_per_gpu: 4
 
   interpolant:
     min_t: 1e-3

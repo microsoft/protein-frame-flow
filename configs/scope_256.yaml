@@ -1,0 +1,20 @@
+defaults:
+  - base
+  - _self_
+
+data:
+  dataset:
+    max_num_res: 256
+  sampler:
+    max_batch_size: 128
+    max_num_res_squared: 1_000_000
+
+model:
+  node_features:
+    embed_diffuse_mask: True
+
+experiment:
+  debug: False
+
+  wandb:
+    name: scope_256

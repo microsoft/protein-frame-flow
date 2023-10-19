@@ -97,6 +97,12 @@ WANDB_TABLE_COLS = [
     'esmf', 'sample'
 ]
 
+FINAL_METRICS = [
+    'scRMSD designable percent',
+    'Helix percent',
+    'Stand percent',
+]
+
 
 def _parse_designable(result_df):
     total_samples = result_df.shape[0]
@@ -222,16 +228,23 @@ class Sampler:
 
     def _within_length_sampling(self, length_dir, sample_length):
         length_top_samples = []
-        for sample_id in range(self._samples_cfg.samples_per_length):
+        if self._infer_cfg.debug:
+            samples_per_length = 2
+        else:
+            samples_per_length = self._samples_cfg.samples_per_length
+
+        for sample_id in range(samples_per_length):
             sample_dir = os.path.join(length_dir, f'sample_{sample_id}')
             top_sample_path = os.path.join(sample_dir, 'top_sample.csv')
 
             if not self._samples_cfg.overwrite:
+
                 if self._infer_cfg.wandb_enable and os.path.exists(top_sample_path):
                     log.info(f'Skipping {sample_dir}')
                     top_sample = pd.read_csv(top_sample_path)
                     length_top_samples.append(top_sample)
                     continue
+
                 elif (not self._infer_cfg.wandb_enable) and os.path.isdir(sample_dir):
                     log.info(f'Skipping {sample_dir}')
                     continue
@@ -253,7 +266,48 @@ class Sampler:
             length_top_samples = pd.concat(length_top_samples)
         return length_top_samples
 
-    def log_wandb_results(self, log_table, sc_summary):
+    def log_final_results(self, final_top_samples, final_sc_summary):
+        final_top_samples['esmf'] = final_top_samples['esmf_pdb_path'].map(
+            lambda x: wandb.Molecule(x))
+        final_top_samples['sample'] = final_top_samples['sample_pdb_path'].map(
+            lambda x: wandb.Molecule(x))
+        wandb.log({
+            "Top sample results": wandb.Table(
+                dataframe=final_top_samples
+            )
+        })
+        data = [
+            [label, val[0]]
+            for (label, val) in final_sc_summary.to_dict().items()
+            if label in FINAL_METRICS
+        ]
+        table = wandb.Table(data=data, columns = ["Metric", "value"])
+        wandb.log({
+            "Final metrics" : wandb.plot.bar(
+                table, "Metric", "value", title="Final metrics")
+        })
+        strand_percent = final_top_samples.groupby(
+            'length').strand_percent.mean().reset_index()
+        helix_percent = final_top_samples.groupby(
+            'length').helix_percent.mean().reset_index()
+        wandb.log({
+            "Strand composition": wandb.plot.scatter(
+                wandb.Table(dataframe=strand_percent),
+                x='length',
+                y='strand_percent',
+                title='Strand composition'
+            )
+        })
+        wandb.log({
+            "Helix composition": wandb.plot.scatter(
+                wandb.Table(dataframe=helix_percent),
+                x='length',
+                y='helix_percent',
+                title='Helix composition'
+            )
+        })
+
+    def log_length_results(self, log_table, sc_summary):
         log_table = log_table.rename(
             columns={
                 'length': 'Sample length',
@@ -271,29 +325,18 @@ class Sampler:
                 title='Length vs. scRMSD'
             )
         })
-        wandb.log({
-            "Secondary Structure": wandb.plot.scatter(
-                wandb.Table(dataframe=log_table[['Helix', 'Strand']]),
-                x='Helix',
-                y='Strand',
-                title='Secondary structure'
-            )
-        })
-
-        log_table['esmf'] = log_table['esmf_pdb_path'].map(lambda x: wandb.Molecule(x))
-        log_table['sample'] = log_table['sample_pdb_path'].map(lambda x: wandb.Molecule(x))
-        wandb.log({
-            "Top sample results": wandb.Table(
-                dataframe=log_table
-            )
-        })
-
         designable_summary = pd.concat(sc_summary).rename(
             columns={
                 'length': 'Sample length'
             }
         ).round(2)
-        # TODO: Add chart showing what length we're on.
+        wandb.log({
+            "scRMSD passing" : wandb.plot.scatter(
+                wandb.Table(dataframe=designable_summary),
+                "Sample length",
+                "scRMSD designable"
+            )
+        })
 
     def run_length_sampling(self):
         """Sets up inference run.
@@ -307,6 +350,11 @@ class Sampler:
             self._samples_cfg.max_length+1,
             self._samples_cfg.length_step
         )
+
+        if self._infer_cfg.debug:
+            all_sample_lengths = all_sample_lengths[:2]
+            log.info(f'Debug mode. Only sampling lengths {all_sample_lengths}')
+
         wandb_sc_summary = []
         wandb_table_rows = []
         for sample_length in all_sample_lengths:
@@ -316,6 +364,7 @@ class Sampler:
             log.info(f'Sampling length {sample_length}: {length_dir}')
             length_top_samples = self._within_length_sampling(
                 length_dir, sample_length)
+
             if self._infer_cfg.wandb_enable:
                 length_top_samples.to_csv(os.path.join(length_dir, 'top_samples.csv'))
                 wandb_table_rows.append(length_top_samples)
@@ -323,17 +372,14 @@ class Sampler:
                 designable_results['length'] = sample_length
                 designable_results.to_csv(os.path.join(length_dir, 'sc_summary.csv'))
                 wandb_sc_summary.append(designable_results)
-                self.log_wandb_results(pd.concat(wandb_table_rows), wandb_sc_summary)
+                self.log_length_results(pd.concat(wandb_table_rows), wandb_sc_summary)
+
+        final_top_samples = pd.concat(wandb_table_rows)
+        final_sc_summary = _parse_designable(final_top_samples).round(2)
+        final_sc_summary.to_csv(os.path.join(self._output_dir, 'sc_summary.csv'))
+
         if self._infer_cfg.wandb_enable:
-            final_top_samples = pd.concat(wandb_table_rows)
-            final_sc_summary = _parse_designable(final_top_samples).round(2)
-            final_sc_summary.to_csv(os.path.join(self._output_dir, 'sc_summary.csv'))
-            data = [[label, val[0]] for (label, val) in final_sc_summary.to_dict().items()]
-            table = wandb.Table(data=data, columns = ["Metric", "value"])
-            wandb.log({
-                "Final metrics" : wandb.plot.bar(
-                    table, "Metric", "value", title="Final metrics")
-            })
+            self.log_final_results(final_top_samples, final_sc_summary) 
 
     def run_self_consistency(
             self,
