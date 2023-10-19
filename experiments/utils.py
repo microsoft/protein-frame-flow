@@ -1,13 +1,12 @@
 """Utility functions for experiments."""
 import os
 import numpy as np
-import torch
-from typing import Optional
 import random
 import torch.distributed as dist
 from openfold.utils import rigid_utils
 import logging
 from pytorch_lightning.utilities.rank_zero import rank_zero_only
+from analysis import utils as au
 
 Rigid = rigid_utils.Rigid
 
@@ -45,26 +44,6 @@ def flatten_dict(raw_dict):
         else:
             flattened.append((k, v))
     return flattened
-
-
-def t_stratified_loss(batch_t, batch_loss, num_bins=5, loss_name=None):
-    """Stratify loss by binning t."""
-    flat_losses = batch_loss.flatten()
-    flat_t = batch_t.flatten()
-    bin_edges = np.linspace(0.0, 1.0 + 1e-3, num_bins+1)
-    bin_idx = np.sum(bin_edges[:, None] <= flat_t[None, :], axis=0) - 1
-    t_binned_loss = np.bincount(bin_idx, weights=flat_losses)
-    t_binned_n = np.bincount(bin_idx)
-    stratified_losses = {}
-    if loss_name is None:
-        loss_name = 'loss'
-    for t_bin in np.unique(bin_idx).tolist():
-        bin_start = bin_edges[t_bin]
-        bin_end = bin_edges[t_bin+1]
-        t_range = f'{loss_name} t=[{bin_start:.2f},{bin_end:.2f})'
-        range_loss = t_binned_loss[t_bin] / t_binned_n[t_bin]
-        stratified_losses[t_range] = range_loss
-    return stratified_losses
 
 
 def get_sampled_mask(contigs, length, rng=None, num_tries=1000000):
@@ -125,3 +104,66 @@ def get_sampled_mask(contigs, length, rng=None, num_tries=1000000):
         if count == num_tries: #contig string incompatible with this length
             raise ValueError("Contig string incompatible with --length range")
     return sampled_mask, sampled_mask_length, inpaint_chains
+
+
+
+def save_traj(
+        bb_prot_traj: np.ndarray,
+        x0_traj: np.ndarray,
+        diffuse_mask: np.ndarray,
+        output_dir: str
+    ):
+    """Writes final sample and reverse diffusion trajectory.
+
+    Args:
+        bb_prot_traj: [T, N, 37, 3] atom37 sampled diffusion states.
+            T is number of time steps. First time step is t=eps,
+            i.e. bb_prot_traj[0] is the final sample after reverse diffusion.
+            N is number of residues.
+        x0_traj: [T, N, 3] x_0 predictions of C-alpha at each time step.
+        aatype: [T, N, 21] amino acid probability vector trajectory.
+        res_mask: [N] residue mask.
+        diffuse_mask: [N] which residues are diffused.
+        output_dir: where to save samples.
+
+    Returns:
+        Dictionary with paths to saved samples.
+            'sample_path': PDB file of final state of reverse trajectory.
+            'traj_path': PDB file os all intermediate diffused states.
+            'x0_traj_path': PDB file of C-alpha x_0 predictions at each state.
+        b_factors are set to 100 for diffused residues and 0 for motif
+        residues if there are any.
+    """
+
+    # Write sample.
+    diffuse_mask = diffuse_mask.astype(bool)
+    sample_path = os.path.join(output_dir, 'sample.pdb')
+    prot_traj_path = os.path.join(output_dir, 'bb_traj.pdb')
+    x0_traj_path = os.path.join(output_dir, 'x0_traj.pdb')
+
+    # Use b-factors to specify which residues are diffused.
+    b_factors = np.tile((diffuse_mask * 100)[:, None], (1, 37))
+
+    sample_path = au.write_prot_to_pdb(
+        bb_prot_traj[0],
+        sample_path,
+        b_factors=b_factors,
+        no_indexing=True
+    )
+    prot_traj_path = au.write_prot_to_pdb(
+        bb_prot_traj,
+        prot_traj_path,
+        b_factors=b_factors,
+        no_indexing=True
+    )
+    x0_traj_path = au.write_prot_to_pdb(
+        x0_traj,
+        x0_traj_path,
+        b_factors=b_factors,
+        no_indexing=True
+    )
+    return {
+        'sample_path': sample_path,
+        'traj_path': prot_traj_path,
+        'x0_traj_path': x0_traj_path,
+    }

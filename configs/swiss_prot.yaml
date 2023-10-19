@@ -1,0 +1,43 @@
+defaults:
+  - base
+  - _self_
+
+data:
+  dataset:
+    max_num_res: 512
+    min_num_res: 60
+    min_plddt_percent: 0.7
+    max_coil_percent: 0.7
+    csv_path: swiss_prot/swiss_prot_pkls/metadata.csv
+  sampler:
+    max_batch_size: 128
+    max_num_res_squared: 800_000
+
+model:
+  node_features:
+    embed_diffuse_mask: True
+
+interpolant:
+  trans:
+    pre_align: False
+    batch_ot: True
+
+experiment:
+  debug: False
+
+  num_devices: 4
+  wandb:
+    name: swiss_prot
+
+  trainer:
+    check_val_every_n_epoch: 1
+    accumulate_grad_batches: 2
+  
+  checkpointer:
+    every_n_epochs: null
+    every_n_train_steps: 10000
+
+  training:
+    min_plddt_mask: 0.8
+
+  warm_start: ckpt/se3-fm/swiss_prot/2023-10-18_11-38-52/last.ckpt
