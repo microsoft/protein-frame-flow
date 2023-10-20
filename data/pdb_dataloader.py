@@ -71,6 +71,7 @@ class PdbDataset(Dataset):
         self._is_training = is_training
         self._dataset_cfg = dataset_cfg
         self._init_metadata()
+        self._cache = {}
 
     @property
     def is_training(self):
@@ -120,6 +121,14 @@ class PdbDataset(Dataset):
             self._log.info(
                 f'Validation: {len(self.csv)} examples with lengths {eval_lengths}')
 
+    def read_cache(self, path):
+        if path in self._cache:
+            return self._cache[path]
+        processed_row = self._process_csv_row(path)
+        if len(self._cache) < self._dataset_cfg.max_cache_size:
+            self._cache[path] = processed_row
+        return processed_row
+
     def _process_csv_row(self, processed_file_path):
         processed_feats = du.read_pkl(processed_file_path)
         processed_feats = du.parse_chain_feats(processed_feats)
@@ -160,7 +169,11 @@ class PdbDataset(Dataset):
         example_idx = idx
         csv_row = self.csv.iloc[example_idx]
         processed_file_path = csv_row['processed_path']
-        chain_feats = self._process_csv_row(processed_file_path)
+        seq_len = csv_row['modeled_seq_len']
+        if seq_len > self._dataset_cfg.cache_num_res:
+            chain_feats = self.read_cache(processed_file_path)
+        else:
+            chain_feats = self._process_csv_row(processed_file_path)
         chain_feats['csv_idx'] = torch.ones(1, dtype=torch.long) * idx
         return chain_feats
 

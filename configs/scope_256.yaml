@@ -18,3 +18,5 @@ experiment:
 
   wandb:
     name: scope_256
+
+  warm_start: ckpt/se3-fm/scope_256/2023-10-18_21-21-20/last.ckpt

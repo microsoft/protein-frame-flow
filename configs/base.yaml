@@ -2,6 +2,8 @@ data:
   # CSV for path and metadata to training examples.
   dataset:
     max_num_res: 128
+    cache_num_res: 256
+    max_cache_size: 100_000
     min_num_res: 0
     min_plddt_percent: null
     max_coil_percent: null
