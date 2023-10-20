@@ -10,8 +10,8 @@ data:
     max_coil_percent: 0.7
     csv_path: ./swiss_prot/swiss_prot_pkls/metadata.csv
   sampler:
-    max_batch_size: 128
-    max_num_res_squared: 800_000
+    max_batch_size: 100
+    max_num_res_squared: 600_000
 
 model:
   node_features:
@@ -27,7 +27,7 @@ experiment:
 
   num_devices: 4
   wandb:
-    name: swiss_prot
+    name: swiss_prot_separate_t
 
   trainer:
     check_val_every_n_epoch: 1
@@ -40,4 +40,4 @@ experiment:
   training:
     min_plddt_mask: 0.8
 
-  warm_start: ckpt/se3-fm/swiss_prot/2023-10-18_20-58-31/last.ckpt
+  # warm_start: ckpt/se3-fm/swiss_prot/2023-10-18_20-58-31/last.ckpt

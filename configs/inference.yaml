@@ -9,8 +9,14 @@ inference:
   overwrite: False
   seed: 123
 
+  # https://wandb.ai/jyim/se3-fm/runs/suhtl38i/overview
+  ckpt_path: ckpt/se3-fm/swiss_prot/2023-10-18_20-58-31/last.ckpt
+
+  # https://wandb.ai/jyim/se3-fm/runs/owv79pn2/overview
+  # ckpt_path: ckpt/se3-fm/scope_256/2023-10-19_10-54-29/last.ckpt
+
   # https://wandb.ai/jyim/se3-fm/runs/p5u6xhx4
-  ckpt_path: ckpt/se3-fm/scope_128_warm_start_ot/2023-10-18_13-04-51/last.ckpt
+  # ckpt_path: ckpt/se3-fm/scope_128_warm_start_ot/2023-10-18_13-04-51/last.ckpt
   
   use_gpu: True
 
@@ -52,8 +58,8 @@ inference:
     # Minimum sequence length to sample.
     min_length: 60
     # Maximum sequence length to sample.
-    max_length: 128
+    max_length: 512
     # gap between lengths to sample. i.e. this script will sample all lengths
     # in range(min_length, max_length, length_step)
-    length_step: 1
+    length_step: 5
     overwrite: False

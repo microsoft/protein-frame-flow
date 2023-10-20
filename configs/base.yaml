@@ -2,7 +2,7 @@ data:
   # CSV for path and metadata to training examples.
   dataset:
     max_num_res: 128
-    cache_num_res: 256
+    cache_num_res: 0
     max_cache_size: 100_000
     min_num_res: 0
     min_plddt_percent: null
@@ -23,6 +23,7 @@ data:
 
 interpolant:
   min_t: 1e-3
+  separate_t: True
   rots:
     corrupt: True
     train_schedule: linear
@@ -48,7 +49,7 @@ model:
     c_s: ${model.node_embed_size}
     c_pos_emb: 128
     c_timestep_emb: 128
-    embed_t: True
+    separate_t: ${interpolant.separate_t}
     embed_diffuse_mask: False
     max_num_res: 2000
     timestep_int: 1000
@@ -89,13 +90,10 @@ experiment:
     min_plddt_mask: null
     loss: se3_vf_loss
     bb_atom_scale: 0.1
-    translation_loss_t_upper: 1.0
-    bb_atom_loss_t_lower: 0.0
     trans_scale: 0.1
     translation_loss_weight: 2.0
     t_normalize_clip: 0.9
     rotation_loss_weights: 1.0
-    rotation_loss_t_upper: 1.0
     aux_loss_weight: 1.0
     aux_loss_t_pass: 0.25
   wandb:

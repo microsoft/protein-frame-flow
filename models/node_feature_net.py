@@ -13,16 +13,25 @@ class NodeFeatureNet(nn.Module):
         self.c_timestep_emb = self._cfg.c_timestep_emb
 
         embed_size = self._cfg.c_pos_emb
-        if self._cfg.embed_t:
+        embed_size += self._cfg.c_timestep_emb
+        if self._cfg.separate_t:
             embed_size += self._cfg.c_timestep_emb
         if self._cfg.embed_diffuse_mask:
             embed_size += 1
         self.linear = nn.Linear(embed_size, self.c_s)
 
-    def forward(self, timesteps, mask):
+    def embed_t(self, timesteps, mask):
+        timestep_emb = get_time_embedding(
+            timesteps[:, 0],
+            self.c_timestep_emb,
+            max_positions=2056
+        )[:, None, :].repeat(1, mask.shape[1], 1)
+        return timestep_emb * mask.unsqueeze(-1)
+
+    def forward(self, timesteps, so3_t, r3_t, mask):
         # s: [b]
 
-        b, num_res, device = mask.shape[0], mask.shape[1], timesteps.device
+        b, num_res, device = mask.shape[0], mask.shape[1], mask.device
 
         # [b, n_res, c_pos_emb]
         pos = torch.arange(num_res, dtype=torch.float32).to(device)[None]
@@ -33,18 +42,13 @@ class NodeFeatureNet(nn.Module):
         pos_emb = pos_emb * mask.unsqueeze(-1)
 
         # [b, n_res, c_timestep_emb]
-        # timesteps are between 0 and 1. Convert to integers.
         input_feats = [pos_emb]
         if self._cfg.embed_diffuse_mask:
             input_feats.append(mask[..., None])
-        if self._cfg.embed_t:
-            # timesteps_int = torch.floor(
-            #     timesteps * self._cfg.timestep_int).to(device)
-            timestep_emb = get_time_embedding(
-                timesteps[:, 0],
-                self.c_timestep_emb,
-                max_positions=2056
-            )[:, None, :].repeat(1, num_res, 1)
-            timestep_emb = timestep_emb * mask.unsqueeze(-1)
-            input_feats.append(timestep_emb)
+        # timesteps are between 0 and 1. Convert to integers.
+        if self._cfg.separate_t:
+            input_feats.append(self.embed_t(so3_t, mask))
+            input_feats.append(self.embed_t(r3_t, mask))
+        else:
+            input_feats.append(self.embed_t(timesteps, mask))
         return self.linear(torch.cat(input_feats, dim=-1))

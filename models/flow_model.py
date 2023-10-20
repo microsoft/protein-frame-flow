@@ -56,13 +56,18 @@ class FlowModel(nn.Module):
     def forward(self, input_feats):
         node_mask = input_feats['res_mask']
         edge_mask = node_mask[:, None] * node_mask[:, :, None]
-        continuous_t = input_feats['t']
+        so3_t = input_feats['so3_t']
+        r3_t = input_feats['r3_t']
+        if 't' in input_feats:
+            continuous_t = input_feats['t']
+        else:
+            continuous_t = None
         trans_t = input_feats['trans_t']
         rotmats_t = input_feats['rotmats_t']
 
         # Initialize node and edge embeddings
         init_node_embed = self.node_feature_net(
-            continuous_t, node_mask)
+            continuous_t, so3_t, r3_t, node_mask)
         if 'trans_sc' not in input_feats:
             trans_sc = torch.zeros_like(trans_t)
         else:

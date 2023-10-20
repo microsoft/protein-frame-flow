@@ -6,17 +6,20 @@ data:
   dataset:
     max_num_res: 256
   sampler:
-    max_batch_size: 128
-    max_num_res_squared: 1_000_000
+    max_batch_size: 100
+    max_num_res_squared: 600_000
 
 model:
   node_features:
     embed_diffuse_mask: True
 
+interpolant:
+  shared_t: False
+
 experiment:
   debug: False
 
   wandb:
-    name: scope_256
+    name: scope_256_separate_t
 
-  warm_start: ckpt/se3-fm/scope_256/2023-10-18_21-21-20/last.ckpt
+  # warm_start: ckpt/se3-fm/scope_256/2023-10-18_21-21-20/last.ckpt

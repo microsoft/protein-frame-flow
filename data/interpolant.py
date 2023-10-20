@@ -100,7 +100,7 @@ class Interpolant:
         )
         return rotmats_t
 
-    def corrupt_batch(self, batch, t=None):
+    def corrupt_batch(self, batch):
         noisy_batch = copy.deepcopy(batch)
 
         # [B, N, 3]
@@ -114,30 +114,37 @@ class Interpolant:
         num_batch, _ = res_mask.shape
 
         # [B, 1]
-        if t is None:
+        if self._cfg.separate_t:
+            so3_t = self.sample_t(num_batch)[:, None]
+            noisy_batch['so3_t'] = so3_t
+            r3_t = self.sample_t(num_batch)[:, None]
+            noisy_batch['r3_t'] = r3_t
+        else:
             t = self.sample_t(num_batch)[:, None]
-        noisy_batch['t'] = t
+            noisy_batch['t'] = t
+            noisy_batch['so3_t'] = t
+            noisy_batch['r3_t'] = t
 
         # Apply corruptions
         if self._trans_cfg.corrupt:
-            trans_t = self._corrupt_trans(trans_1, t, res_mask)
+            trans_t = self._corrupt_trans(trans_1, r3_t, res_mask)
         else:
             trans_t = trans_1
         noisy_batch['trans_t'] = trans_t
 
         if self._rots_cfg.corrupt:
-            rotmats_t = self._corrupt_rotmats(rotmats_1, t, res_mask)
+            rotmats_t = self._corrupt_rotmats(rotmats_1, so3_t, res_mask)
         else:
             rotmats_t = rotmats_1
         noisy_batch['rotmats_t'] = rotmats_t
         return noisy_batch
-    
+ 
     def _trans_euler_step(self, d_t, t, trans_1, trans_t):
         trans_vf = (trans_1 - trans_t) / (1 - t)
         # TODO: Add in temperature
         # TODO: Add in SDE
         return trans_t + trans_vf * d_t
-    
+
     def _rots_euler_step(self, d_t, t, rotmats_1, rotmats_t):
         if self._rots_cfg.sample_schedule == 'linear':
             scaling = 1 / (1 - t)
@@ -194,7 +201,10 @@ class Interpolant:
                 if rotmats_1 is None:
                     raise ValueError('Must provide rotmats_1 if not corrupting.')
                 batch['trans_t'] = rotmats_1
-            batch['t'] = torch.ones((num_batch, 1), device=self._device) * t_1
+            t = torch.ones((num_batch, 1), device=self._device) * t_1
+            batch['t'] = t
+            batch['so3_t'] = t
+            batch['r3_t'] = t
             with torch.no_grad():
                 model_out = model(batch)
 
