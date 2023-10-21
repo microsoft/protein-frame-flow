@@ -14,7 +14,11 @@ class NodeFeatureNet(nn.Module):
 
         embed_size = self._cfg.c_pos_emb
         embed_size += self._cfg.c_timestep_emb
-        if self._cfg.separate_t:
+        if 'separate_t' not in self._cfg:
+            self._separate_t = False
+        else:
+            self._separate_t = self._cfg.separate_t
+        if self._separate_t:
             embed_size += self._cfg.c_timestep_emb
         if self._cfg.embed_diffuse_mask:
             embed_size += 1
@@ -46,7 +50,7 @@ class NodeFeatureNet(nn.Module):
         if self._cfg.embed_diffuse_mask:
             input_feats.append(mask[..., None])
         # timesteps are between 0 and 1. Convert to integers.
-        if self._cfg.separate_t:
+        if self._separate_t:
             input_feats.append(self.embed_t(so3_t, mask))
             input_feats.append(self.embed_t(r3_t, mask))
         else:

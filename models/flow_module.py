@@ -16,8 +16,14 @@ from data.interpolant import Interpolant
 from data import utils as du
 from data import all_atom
 from data import so3_utils
-from data import flow_utils
+from experiments import utils as eu
+import shutil
+import subprocess
+from openfold.utils.superimposition import superimpose
+from biotite.sequence.io import fasta
 from pytorch_lightning.loggers.wandb import WandbLogger
+import esm
+import torch.distributed as dist
 
 
 class FlowModule(LightningModule):
@@ -41,6 +47,8 @@ class FlowModule(LightningModule):
         self.validation_epoch_metrics = []
         self.validation_epoch_samples = []
         self.save_hyperparameters()
+
+        self._folding_model = None
         
     def on_train_start(self):
         self._epoch_start_time = time.time()
@@ -75,7 +83,6 @@ class FlowModule(LightningModule):
         # Timestep used for normalization.
         r3_t = noisy_batch['r3_t']
         so3_t = noisy_batch['so3_t']
-        # batch_t = noisy_batch['t']
         r3_norm_scale = 1 - torch.min(
             r3_t[..., None], torch.tensor(training_cfg.t_normalize_clip))
         so3_norm_scale = 1 - torch.min(
@@ -98,24 +105,18 @@ class FlowModule(LightningModule):
         ) / loss_denom
 
         # Translation VF loss
-        gt_trans = gt_trans_1 * training_cfg.trans_scale
-        pred_trans = pred_trans_1 * training_cfg.trans_scale
-        gt_trans /= r3_norm_scale
-        pred_trans /= r3_norm_scale
+        trans_error = (gt_trans_1 - pred_trans_1) / r3_norm_scale * training_cfg.trans_scale
         trans_loss = training_cfg.translation_loss_weight * torch.sum(
-            (gt_trans - pred_trans) ** 2 * res_mask[..., None],
+            trans_error ** 2 * res_mask[..., None],
             dim=(-1, -2)
         ) / loss_denom
 
         # Rotation VF loss
-        gt_rot_vf /= so3_norm_scale
-        pred_rots_vf /= so3_norm_scale
-        rots_vf_error = (gt_rot_vf - pred_rots_vf)
-        rots_vf_loss = torch.sum(
+        rots_vf_error = (gt_rot_vf - pred_rots_vf) / so3_norm_scale
+        rots_vf_loss = training_cfg.rotation_loss_weights * torch.sum(
             rots_vf_error ** 2 * res_mask[..., None],
             dim=(-1, -2)
         ) / loss_denom
-        rots_vf_loss *= training_cfg.rotation_loss_weights
 
         # Pairwise distance loss
         gt_flat_atoms = gt_bb_atoms.reshape([num_batch, num_res*3, 3])
@@ -140,7 +141,10 @@ class FlowModule(LightningModule):
         dist_mat_loss /= (torch.sum(pair_dist_mask, dim=(1, 2)) - num_res)
 
         se3_vf_loss = trans_loss + rots_vf_loss
-        auxiliary_loss = (bb_atom_loss + dist_mat_loss) * (r3_t[:, 0] > training_cfg.aux_loss_t_pass)
+        auxiliary_loss = (bb_atom_loss + dist_mat_loss) * (
+            (r3_t[:, 0] > training_cfg.aux_loss_t_pass)
+            & (so3_t[:, 0] > training_cfg.aux_loss_t_pass)
+        )
         auxiliary_loss *= self._exp_cfg.training.aux_loss_weight
         se3_vf_loss += auxiliary_loss
         all_losses = {
@@ -154,6 +158,10 @@ class FlowModule(LightningModule):
         if torch.isnan(se3_vf_loss).any():
             import ipdb; ipdb.set_trace()
         self._prev_losses = all_losses
+        self._prev_r3_t = r3_t
+        self._prev_so3_t = so3_t
+        self._prev_batch = noisy_batch
+        self._prev_model_out = model_output
         return noisy_batch, all_losses
 
     def validation_step(self, batch: Any, batch_idx: int):
@@ -340,11 +348,29 @@ class FlowModule(LightningModule):
             return atom37_traj, model_atom37_traj, model_traj
         return atom37_traj
 
-    def _log_scalar(self, key, value, on_step=True, on_epoch=False, prog_bar=True, batch_size=None, sync_dist=False, rank_zero_only=True):
+    def _log_scalar(
+            self,
+            key,
+            value,
+            on_step=True,
+            on_epoch=False,
+            prog_bar=True,
+            batch_size=None,
+            sync_dist=False,
+            rank_zero_only=True
+        ):
         if sync_dist and rank_zero_only:
             raise ValueError('Unable to sync dist when rank_zero_only=True')
         self.log(
-            key, value, on_step=on_step, on_epoch=on_epoch, prog_bar=prog_bar, batch_size=batch_size, sync_dist=sync_dist, rank_zero_only=rank_zero_only)
+            key,
+            value,
+            on_step=on_step,
+            on_epoch=on_epoch,
+            prog_bar=prog_bar,
+            batch_size=batch_size,
+            sync_dist=sync_dist,
+            rank_zero_only=rank_zero_only
+        )
 
     def training_step(self, batch: Any, stage: int):
         step_start_time = time.time()
@@ -408,3 +434,150 @@ class FlowModule(LightningModule):
             params=self.model.parameters(),
             **self._exp_cfg.optimizer
         )
+
+    def predict_step(self, batch, batch_idx):
+
+        device = f'cuda:{torch.cuda.current_device()}'
+        interpolant = Interpolant(self._infer_cfg.interpolant) 
+        interpolant.set_device(device)
+
+        sample_length = batch['num_res'].item()
+        sample_id = batch['sample_id'].item()
+        self._print_logger.info(f'Sampling instance {sample_id} length {sample_length}')
+        atom37_traj, model_traj, _ = interpolant.sample(
+            1, sample_length, self.model)
+        
+        sample_dir = os.path.join(
+            self._output_dir, f'length_{sample_length}', f'sample_{sample_id}')
+        os.makedirs(sample_dir, exist_ok=True)
+        traj_paths = eu.save_traj(
+            np.flip(du.to_numpy(torch.concat(atom37_traj, dim=0)), axis=0),
+            np.flip(du.to_numpy(torch.concat(model_traj, dim=0)), axis=0),
+            np.ones(sample_length),
+            output_dir=sample_dir
+        )
+
+        # Run PMPNN to get sequences
+        sc_output_dir = os.path.join(sample_dir, 'self_consistency')
+        pdb_path = traj_paths['sample_path']
+        os.makedirs(sc_output_dir, exist_ok=True)
+        shutil.copy(pdb_path, os.path.join(
+            sc_output_dir, os.path.basename(pdb_path)))
+        os.makedirs(os.path.join(sc_output_dir, 'seqs'), exist_ok=True)
+
+        self._print_logger.info(f'Sequence design instance {sample_id} length {sample_length}')
+        output_path = os.path.join(sc_output_dir, "parsed_pdbs.jsonl")
+        process = subprocess.Popen([
+            'python',
+            f'./ProteinMPNN/helper_scripts/parse_multiple_chains.py',
+            f'--input_path={sc_output_dir}',
+            f'--output_path={output_path}',
+        ])
+        _ = process.wait()
+        pmpnn_args = [
+            'python',
+            f'./ProteinMPNN/protein_mpnn_run.py',
+            '--out_folder',
+            sc_output_dir,
+            '--jsonl_path',
+            output_path,
+            '--num_seq_per_target',
+            str(self._samples_cfg.seq_per_sample),
+            '--sampling_temp',
+            '0.1',
+            '--seed',
+            '38',
+            '--batch_size',
+            '1',
+            '--device',
+            str(torch.cuda.current_device()),
+        ]
+        process = subprocess.Popen(
+            pmpnn_args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT
+        )
+        _ = process.wait()
+        mpnn_fasta_path = os.path.join(
+            sc_output_dir,
+            'seqs',
+            os.path.basename(pdb_path).replace('.pdb', '.fa')
+        )
+
+        # Run ESMFold on each ProteinMPNN sequence and calculate metrics.
+        self._print_logger.info(f'ESMFold instance {sample_id} length {sample_length}')
+        mpnn_results = {
+            'tm_score': [],
+            'sample_pdb_path': [],
+            'header': [],
+            'sequence': [],
+            'rmsd': [],
+            'mean_plddt': [],
+            'esmf_pdb_path': [],
+        }
+        if self._folding_model is None:
+            device_idx = torch.cuda.current_device()
+            device = f'cuda:{device_idx}'
+            self._print_logger.info(f'Loading ESMFold on device {device}')
+            torch.hub.set_dir(self._infer_cfg.pt_hub_dir)
+            self._folding_model = esm.pretrained.esmfold_v1().eval()
+            self._folding_model = self._folding_model.to(device)
+
+        esmf_dir = os.path.join(sc_output_dir, 'esmf')
+        os.makedirs(esmf_dir, exist_ok=True)
+        fasta_seqs = fasta.FastaFile.read(mpnn_fasta_path)
+        sample_feats = du.parse_pdb_feats('sample', pdb_path)
+        for i, (header, string) in enumerate(fasta_seqs.items()):
+
+            # Run ESMFold
+            esmf_sample_path = os.path.join(esmf_dir, f'sample_{i}.pdb')
+
+            with torch.no_grad():
+                esmf_outputs = self._folding_model.infer(string)
+                pdb_output = self._folding_model.output_to_pdb(esmf_outputs)[0]
+
+            with open(esmf_sample_path, "w") as f:
+                f.write(pdb_output)
+
+            mean_plddt = esmf_outputs['mean_plddt'][0].item()
+            esmf_feats = du.parse_pdb_feats('folded_sample', esmf_sample_path)
+            sample_seq = du.aatype_to_seq(sample_feats['aatype'])
+
+            # Calculate scTM of ESMFold outputs with reference protein
+            sample_bb_pos = sample_feats['bb_positions']
+            esmf_bb_pos = esmf_feats['bb_positions']
+            res_mask = np.ones(esmf_bb_pos.shape[0])
+            _, tm_score = metrics.calc_tm_score(
+                sample_bb_pos, esmf_bb_pos, sample_seq, sample_seq)
+            _, rmsd = superimpose(
+                torch.tensor(sample_bb_pos[None]),
+                torch.tensor(esmf_bb_pos[None]),
+                torch.tensor(res_mask[None])
+            )
+            rmsd = rmsd[0].item()
+            mpnn_results['rmsd'].append(rmsd)
+            mpnn_results['tm_score'].append(tm_score)
+            mpnn_results['esmf_pdb_path'].append(esmf_sample_path)
+            mpnn_results['sample_pdb_path'].append(pdb_path)
+            mpnn_results['header'].append(header)
+            mpnn_results['sequence'].append(string)
+            mpnn_results['mean_plddt'].append(mean_plddt)
+
+        # Save results to CSV
+        mpnn_results = pd.DataFrame(mpnn_results)
+        mpnn_results.to_csv(os.path.join(sample_dir, 'sc_results.csv'))
+        mpnn_results['length'] = sample_length
+        mpnn_results['sample_id'] = sample_id
+        del mpnn_results['header']
+        del mpnn_results['sequence']
+
+        # Select the top sample
+        top_sample = mpnn_results.sort_values('rmsd', ascending=True).iloc[:1]
+
+        # Compute secondary structure metrics
+        sample_dict = top_sample.iloc[0].to_dict()
+        ss_metrics = metrics.calc_mdtraj_metrics(sample_dict['sample_pdb_path'])
+        top_sample['helix_percent'] = ss_metrics['helix_percent']
+        top_sample['strand_percent'] = ss_metrics['strand_percent']
+        top_sample.to_csv(os.path.join(sample_dir, 'top_sample.csv'))
+        self._print_logger.info(f'Done with sample {sample_id} length {sample_length}')

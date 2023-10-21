@@ -4,52 +4,63 @@ defaults:
   - _self_
 
 inference:
-  name: null
+  debug: False
+  name: run_${now:%Y-%m-%d}_${now:%H-%M-%S}
+  overwrite: False
   seed: 123
 
-  # https://wandb.ai/jyim/se3-fm/runs/0sfpo74r/overview
-  # ckpt_path: ckpt/se3-fm/warm_start/2023-09-05_20-21-01/last.ckpt
+  # https://wandb.ai/jyim/se3-fm/runs/suhtl38i/overview
+  ckpt_path: ckpt/se3-fm/swiss_prot/2023-10-18_20-58-31/last.ckpt
 
-  # https://wandb.ai/jyim/se3-fm/runs/z0zlh0xs/overview
-  # ckpt_path: ckpt/se3-fm/flower/2023-09-05_20-34-26/last.ckpt
+  # https://wandb.ai/jyim/se3-fm/runs/owv79pn2/overview
+  # ckpt_path: ckpt/se3-fm/scope_256/2023-10-19_10-54-29/last.ckpt
 
-  # ckpt_path: '/data/rsg/chemistry/jyim/projects/flow-matching/ckpt/se3-fm/warm_start/2023-09-05_20-21-01/last.ckpt'
-  ckpt_path: /data/rsg/chemistry/jyim/projects/flow-matching/ckpt/se3-fm/linear_no_embed_t/2023-10-08_08-51-30/last.ckpt
+  # https://wandb.ai/jyim/se3-fm/runs/p5u6xhx4
+  # ckpt_path: ckpt/se3-fm/scope_128_warm_start_ot/2023-10-18_13-04-51/last.ckpt
   
   use_gpu: True
-  use_ca_pmpnn: False
+  num_gpus: 2
 
-  # Number of steps.
-  num_timesteps: 100
-
-  do_sde: False
-  sde_noise_scale: 1.0
-  vf_scale: reverse_time_5
-
-  # DDP settings.
-  num_gpus: 4
-  batch_size_per_gpu: 4
+  interpolant:
+    min_t: 1e-2
+    rots:
+      corrupt: True
+      training_prior: null
+      train_schedule: null
+      sample_schedule: exp
+      exp_rate: 10
+      igso3_min_sigma: 0.1
+      igso3_max_sigma: 1.5
+    trans:
+      corrupt: True
+      pre_align: True
+      train_schedule: null
+      sample_schedule: linear
+      sample_temp: 1.0
+    sampling:
+      num_timesteps: 100
+      do_sde: False
+    self_condition: True
 
   # Directory of software, weights, and outputs.
   pt_hub_dir: ./.cache/torch/
   pmpnn_dir: ./ProteinMPNN
   output_dir: ./inference_outputs/
 
-  wandb_enable: True
+  write_to_wandb: True
   wandb:
     project: se3-fm-inference
-    tags: [
-      'ts_${inference.num_timesteps}',
-      'ca_mpnn_${inference.use_ca_pmpnn}',
-      'sde_${inference.do_sde}'
-    ]
 
   samples:
     # Number of backbone samples per sequence length.
-    samples_per_length: 10
+    samples_per_length: 2
     # Number of ESMFdold samples per backbone sample.
     seq_per_sample: 8
     # Minimum sequence length to sample.
     min_length: 60
     # Maximum sequence length to sample.
     max_length: 128
+    # gap between lengths to sample. i.e. this script will sample all lengths
+    # in range(min_length, max_length, length_step)
+    length_step: 1
+    overwrite: False

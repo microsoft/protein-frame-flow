@@ -25,15 +25,21 @@ class Interpolant:
         self._rots_cfg = cfg.rots
         self._trans_cfg = cfg.trans
         self._sample_cfg = cfg.sampling
-        sigma_grid = torch.linspace(0.1, 1.5, 1000)
-        self._igso3 = so3_utils.SampleIGSO3(1000, sigma_grid)
+        self._igso3 = None
+
+    @property
+    def igso3(self):
+        if self._igso3 is None:
+            sigma_grid = torch.linspace(0.1, 1.5, 1000)
+            self._igso3 = so3_utils.SampleIGSO3(1000, sigma_grid)
+        return self._igso3
 
     def set_device(self, device):
         self._device = device
 
     def sample_t(self, num_batch):
        t = torch.rand(num_batch, device=self._device)
-       return t * (1 - self._cfg.min_t) + self._cfg.min_t
+       return t * (1 - 2*self._cfg.min_t) + self._cfg.min_t
 
     def _corrupt_trans(self, trans_1, t, res_mask):
         trans_nm_0 = _centered_gaussian(*res_mask.shape, self._device)
@@ -77,7 +83,7 @@ class Interpolant:
     def _corrupt_rotmats(self, rotmats_1, t, res_mask):
         num_batch, num_res = res_mask.shape
         # rotmats_0 = _uniform_so3(num_batch, num_res, self._device)
-        noisy_rotmats = self._igso3.sample(
+        noisy_rotmats = self.igso3.sample(
             torch.tensor([1.5]),
             num_batch*num_res
         ).to(self._device)

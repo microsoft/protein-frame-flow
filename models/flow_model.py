@@ -6,7 +6,6 @@ from models.node_feature_net import NodeFeatureNet
 from models.edge_feature_net import EdgeFeatureNet
 from models import ipa_pytorch
 from data import utils as du
-from data import so3_utils
 
 
 class FlowModel(nn.Module):
@@ -16,8 +15,7 @@ class FlowModel(nn.Module):
         self._model_conf = model_conf
         self._ipa_conf = model_conf.ipa
         self.rigids_ang_to_nm = lambda x: x.apply_trans_fn(lambda x: x * du.ANG_TO_NM_SCALE)
-        self.rigids_nm_to_ang = lambda x: x.apply_trans_fn(lambda x: x * du.NM_TO_ANG_SCALE)
-        
+        self.rigids_nm_to_ang = lambda x: x.apply_trans_fn(lambda x: x * du.NM_TO_ANG_SCALE) 
         self.node_feature_net = NodeFeatureNet(model_conf.node_features)
         self.edge_feature_net = EdgeFeatureNet(model_conf.edge_features)
 
