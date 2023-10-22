@@ -11,16 +11,14 @@ data:
     csv_path: ./swiss_prot/swiss_prot_pkls/metadata.csv
   sampler:
     max_batch_size: 100
-    max_num_res_squared: 600_000
+    max_num_res_squared: 500_000
 
 model:
   node_features:
     embed_diffuse_mask: True
 
 interpolant:
-  trans:
-    pre_align: False
-    batch_ot: True
+  shared_t: False
 
 experiment:
   debug: False
@@ -31,7 +29,7 @@ experiment:
 
   trainer:
     check_val_every_n_epoch: 1
-    accumulate_grad_batches: 2
+    accumulate_grad_batches: 1
   
   checkpointer:
     every_n_epochs: null

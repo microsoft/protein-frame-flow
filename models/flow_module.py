@@ -436,7 +436,6 @@ class FlowModule(LightningModule):
         )
 
     def predict_step(self, batch, batch_idx):
-
         device = f'cuda:{torch.cuda.current_device()}'
         interpolant = Interpolant(self._infer_cfg.interpolant) 
         interpolant.set_device(device)
@@ -449,6 +448,10 @@ class FlowModule(LightningModule):
         
         sample_dir = os.path.join(
             self._output_dir, f'length_{sample_length}', f'sample_{sample_id}')
+        top_sample_csv_path = os.path.join(sample_dir, 'top_sample.csv')
+        if os.path.exists(top_sample_csv_path):
+            self._print_logger.info(f'Skipping instance {sample_id} length {sample_length}')
+            return
         os.makedirs(sample_dir, exist_ok=True)
         traj_paths = eu.save_traj(
             np.flip(du.to_numpy(torch.concat(atom37_traj, dim=0)), axis=0),
@@ -579,5 +582,5 @@ class FlowModule(LightningModule):
         ss_metrics = metrics.calc_mdtraj_metrics(sample_dict['sample_pdb_path'])
         top_sample['helix_percent'] = ss_metrics['helix_percent']
         top_sample['strand_percent'] = ss_metrics['strand_percent']
-        top_sample.to_csv(os.path.join(sample_dir, 'top_sample.csv'))
+        top_sample.to_csv(top_sample_csv_path)
         self._print_logger.info(f'Done with sample {sample_id} length {sample_length}')

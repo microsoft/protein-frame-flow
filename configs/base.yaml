@@ -22,7 +22,7 @@ data:
     num_batches: null
 
 interpolant:
-  min_t: 1e-3
+  min_t: 1e-2
   separate_t: True
   rots:
     corrupt: True
