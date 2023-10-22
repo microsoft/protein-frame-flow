@@ -24,6 +24,7 @@ data:
 interpolant:
   min_t: 1e-2
   separate_t: True
+  provide_kappa: True
   rots:
     corrupt: True
     train_schedule: linear

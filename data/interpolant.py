@@ -31,7 +31,8 @@ class Interpolant:
     def igso3(self):
         if self._igso3 is None:
             sigma_grid = torch.linspace(0.1, 1.5, 1000)
-            self._igso3 = so3_utils.SampleIGSO3(1000, sigma_grid)
+            self._igso3 = so3_utils.SampleIGSO3(
+                1000, sigma_grid, cache_dir='.cache')
         return self._igso3
 
     def set_device(self, device):
@@ -144,7 +145,23 @@ class Interpolant:
             rotmats_t = rotmats_1
         noisy_batch['rotmats_t'] = rotmats_t
         return noisy_batch
- 
+    
+    def rot_sample_kappa(self, t):
+        if self._rots_cfg.sample_schedule == 'exp':
+            return 1 - torch.exp(-t*self._rots_cfg.exp_rate)
+        elif self._rots_cfg.sample_schedule == 'linear':
+            return t
+        else:
+            raise ValueError(
+                f'Invalid schedule: {self._rots_cfg.sample_schedule}')
+
+    def trans_sample_kappa(self, t):
+        if self._trans_cfg.sample_schedule == 'linear':
+            return t
+        else:
+            raise ValueError(
+                f'Invalid schedule: {self._trans_cfg.sample_schedule}')
+
     def _trans_euler_step(self, d_t, t, trans_1, trans_t):
         trans_vf = (trans_1 - trans_t) / (1 - t)
         # TODO: Add in temperature
@@ -209,7 +226,10 @@ class Interpolant:
                 batch['trans_t'] = rotmats_1
             t = torch.ones((num_batch, 1), device=self._device) * t_1
             batch['t'] = t
-            batch['so3_t'] = t
+            if self._cfg.provide_kappa:
+                batch['so3_t'] = self.rot_sample_kappa(t)
+            else:
+                batch['so3_t'] = t
             batch['r3_t'] = t
             with torch.no_grad():
                 model_out = model(batch)

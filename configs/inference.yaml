@@ -5,7 +5,7 @@ defaults:
 
 inference:
   debug: False
-  name: eval 
+  name: provde_kappa
 
   # Use this to write with date-time stamp.
   #name: run_${now:%Y-%m-%d}_${now:%H-%M-%S}
@@ -17,10 +17,11 @@ inference:
   ckpt_path: ckpt/se3-fm/scope_256/2023-10-19_10-54-29/last.ckpt
   
   use_gpu: True
-  num_gpus: 5
+  num_gpus: 4
 
   interpolant:
     min_t: 1e-2
+    provide_kappa: True
     rots:
       corrupt: True
       sample_schedule: exp

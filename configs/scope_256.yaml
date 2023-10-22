@@ -6,8 +6,8 @@ data:
   dataset:
     max_num_res: 256
   sampler:
-    max_batch_size: 128
-    max_num_res_squared: 600_000
+    max_batch_size: 100
+    max_num_res_squared: 500_000
 
 model:
   node_features:
@@ -19,8 +19,11 @@ interpolant:
 experiment:
   debug: False
 
-  # trainer:
-  #   detect_anomaly: True
+  num_devices: 4
+
+  trainer:
+    check_val_every_n_epoch: 2
+    accumulate_grad_batches: 1
 
   wandb:
     # name: scope_256_separate_t_rescaled
