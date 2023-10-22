@@ -123,14 +123,15 @@ class Interpolant:
         # [B, 1]
         if self._cfg.separate_t:
             so3_t = self.sample_t(num_batch)[:, None]
-            noisy_batch['so3_t'] = so3_t
             r3_t = self.sample_t(num_batch)[:, None]
-            noisy_batch['r3_t'] = r3_t
         else:
             t = self.sample_t(num_batch)[:, None]
+            so3_t = t
+            r3_t = t
+            # TODO: Eventually get rid of.
             noisy_batch['t'] = t
-            noisy_batch['so3_t'] = t
-            noisy_batch['r3_t'] = t
+        noisy_batch['so3_t'] = so3_t
+        noisy_batch['r3_t'] = r3_t
 
         # Apply corruptions
         if self._trans_cfg.corrupt:

@@ -16,20 +16,23 @@ data:
 model:
   node_features:
     embed_diffuse_mask: True
+    separate_t: True
 
 interpolant:
-  shared_t: False
+  separate_t: False
 
 experiment:
   debug: False
 
-  num_devices: 4
+  warm_start_cfg_override: False
+
+  num_devices: 2
   wandb:
-    name: swiss_prot_separate_t
+    name: swiss_prot_separate_t_linear
 
   trainer:
     check_val_every_n_epoch: 1
-    accumulate_grad_batches: 1
+    accumulate_grad_batches: 2
   
   checkpointer:
     every_n_epochs: null
@@ -38,4 +41,5 @@ experiment:
   training:
     min_plddt_mask: 0.8
 
+  warm_start: ckpt/se3-fm/swiss_prot_separate_t/2023-10-21_21-21-18/last.ckpt
   # warm_start: ckpt/se3-fm/swiss_prot/2023-10-18_20-58-31/last.ckpt

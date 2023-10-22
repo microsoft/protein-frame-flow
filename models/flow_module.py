@@ -23,7 +23,6 @@ from openfold.utils.superimposition import superimpose
 from biotite.sequence.io import fasta
 from pytorch_lightning.loggers.wandb import WandbLogger
 import esm
-import torch.distributed as dist
 
 
 class FlowModule(LightningModule):
@@ -155,13 +154,6 @@ class FlowModule(LightningModule):
             "rots_vf_loss": rots_vf_loss,
             "se3_vf_loss": se3_vf_loss
         }
-        if torch.isnan(se3_vf_loss).any():
-            import ipdb; ipdb.set_trace()
-        self._prev_losses = all_losses
-        self._prev_r3_t = r3_t
-        self._prev_so3_t = so3_t
-        self._prev_batch = noisy_batch
-        self._prev_model_out = model_output
         return noisy_batch, all_losses
 
     def validation_step(self, batch: Any, batch_idx: int):

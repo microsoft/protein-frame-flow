@@ -229,7 +229,7 @@ class Sampler:
             '-C', '2',
             '-in',
             '-Rl',
-            '-TM',
+            os.path.join(designable_dir, 'tm_results.txt'),
             '-Tm',
             '0.5',
         ]
