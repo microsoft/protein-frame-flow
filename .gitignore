@@ -13,6 +13,7 @@ outputs/
 **/lightning_logs/
 **/inference_outputs/
 .hydra
+tmpFolder/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

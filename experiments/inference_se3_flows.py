@@ -54,16 +54,21 @@ Modify inference.yaml or use the command line to start a single GPU wandb loggin
 
 import os
 import time
+import re
 import numpy as np
 import hydra
 import torch
 import pandas as pd
 import glob
+import wandb
+import GPUtil
+import shutil
+import torch.distributed as dist
+from pytorch_lightning import Trainer
 from omegaconf import DictConfig, OmegaConf
 from experiments import utils as eu
 from models.flow_module import FlowModule
-import wandb
-from pytorch_lightning import Trainer
+import subprocess
 
 log = eu.get_pylogger(__name__)
 
@@ -90,6 +95,22 @@ def _parse_designable(result_df):
         'Helix percent': result_df.helix_percent.sum() / total_samples,
         'Stand percent': result_df.strand_percent.sum() / total_samples,
     }, index=[0])
+
+
+def calc_novelty(novelty_path):
+    foldseek_df = {
+        'sample': [],
+        'alntm': [],
+    }
+    with open(novelty_path) as file:
+        for item in file:
+            file, _, _, tm_score = item.split('\t')
+            tm_score = float(tm_score)
+            foldseek_df['sample'].append(file)
+            foldseek_df['alntm'].append(tm_score)
+    foldseek_df = pd.DataFrame(foldseek_df)
+    novelty_summary = foldseek_df.groupby('sample').agg({'alntm': 'max'}).reset_index()
+    return novelty_summary.alntm.mean()
 
 
 class BlankDataset(torch.utils.data.Dataset):
@@ -163,27 +184,102 @@ class Sampler:
         self._flow_module._output_dir = self._output_dir
 
     def run_length_sampling(self):
+        devices = GPUtil.getAvailable(
+            order='memory', limit = 8)[:self._infer_cfg.num_gpus]
+        log.info(f"Using devices: {devices}")
+
         blank_dataset = BlankDataset(self._samples_cfg)
         dataloader = torch.utils.data.DataLoader(
             blank_dataset, batch_size=1, shuffle=False, drop_last=False)
         trainer = Trainer(
             accelerator="gpu",
             strategy="ddp",
-            devices=self._infer_cfg.num_gpus,
+            devices=devices,
         )
         trainer.predict(
             self._flow_module, dataloaders=dataloader)
-
-    def write_to_wandb(self):
+        
         all_csv_paths = glob.glob(self._output_dir+'/**/*.csv', recursive=True)
         top_sample_csv = pd.concat([
-            pd.read_csv(x) for x in all_csv_paths if 'top_sample' in x
+            pd.read_csv(x) for x in all_csv_paths if '/top_sample' in x
         ])
         top_sample_csv.to_csv(
             os.path.join(self._output_dir, 'all_top_samples.csv'), index=False)
         designable_csv = _parse_designable(top_sample_csv)
+        designable_samples = top_sample_csv[top_sample_csv.rmsd <= 2.0]
+        designable_dir = os.path.join(self._output_dir, 'designable')
+        os.makedirs(designable_dir, exist_ok=True)
+        designable_txt = os.path.join(designable_dir, 'designable.txt')
+        if os.path.exists(designable_txt):
+            os.remove(designable_txt)
+        with open(designable_txt, 'w') as f:
+            for _, row in designable_samples.iterrows():
+                sample_path = row.sample_pdb_path
+                sample_name = f'len_{row.length}_id_{row.sample_id}.pdb'
+                write_path = os.path.join(designable_dir, sample_name)
+                shutil.copy(sample_path, write_path)
+                f.write(write_path+'\n')
+
+        log.info(f'Running max cluster on {len(designable_samples)} samples')
+        pmpnn_args = [
+            './maxcluster64bit',
+            '-l',
+            designable_txt,
+            os.path.join(designable_dir, 'all_by_all_lite'),
+            '-C', '2',
+            '-in',
+            '-Rl',
+            '-TM',
+            '-Tm',
+            '0.5',
+        ]
+        process = subprocess.Popen(
+            pmpnn_args,
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE
+        )
+        stdout, _ = process.communicate()
+        match = re.search(
+            r"INFO\s*:\s*(\d+)\s+Clusters\s+@\s+Threshold\s+(\d+\.\d+)\s+\(\d+\.\d+\)",
+            stdout.decode('utf-8'))
+        clusters = int(match.group(1))
+        designable_csv['Clusters'] = clusters
+        designable_csv['Diversity'] = clusters / len(designable_samples)
+
+        log.info(f'Running foldseek on {len(designable_samples)} samples')
+        aln_path = os.path.join(designable_dir, 'aln_noise_01_seqs_100_esmf.m8')
+        pmpnn_args = [
+            'foldseek',
+            'easy-search',
+            designable_dir,
+            '/Mounts/rbg-storage1/users/jyim/programs/foldseek/pdb',
+            aln_path,
+            'tmpFolder',
+            '--alignment-type',
+            '1',
+            '--format-output',
+            'query,target,alntmscore,lddt',
+            '--tmscore-threshold',
+            '0.0',
+            '--exhaustive-search',
+            '--max-seqs',
+            '10000000000',
+        ]
+        process = subprocess.Popen(
+            pmpnn_args,
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE
+        )
+        _ = process.wait()
+        designable_csv['Novelty'] = calc_novelty(aln_path)
         designable_csv.to_csv(
             os.path.join(self._output_dir, 'designable.csv'), index=False)
+
+    def write_to_wandb(self):
+        top_sample_csv = pd.read_csv(
+            os.path.join(self._output_dir, 'all_top_samples.csv'))
+        designable_csv = pd.read_csv(
+            os.path.join(self._output_dir, 'designable.csv'))
 
         cfg_dict = OmegaConf.to_container(self._cfg, resolve=True)
         wandb.init(
@@ -243,13 +339,13 @@ class Sampler:
                 table, "Metric", "value", title="Final metrics")
         })
         strand_percent = top_sample_csv.groupby(
-            'Sample length').Strand.mean().reset_index()
+            'Sample length').Strand.mean().reset_index().round(2)
         helix_percent = top_sample_csv.groupby(
-            'Sample length').Helix.mean().reset_index()
+            'Sample length').Helix.mean().reset_index().round(2)
         wandb.log({
             "Strand composition": wandb.plot.scatter(
                 wandb.Table(dataframe=strand_percent),
-                x='length',
+                x='Sample length',
                 y='Strand',
                 title='Strand composition'
             )
@@ -257,7 +353,7 @@ class Sampler:
         wandb.log({
             "Helix composition": wandb.plot.scatter(
                 wandb.Table(dataframe=helix_percent),
-                x='length',
+                x='Sample length',
                 y='Helix',
                 title='Helix composition'
             )
@@ -272,7 +368,8 @@ def run(cfg: DictConfig) -> None:
     start_time = time.time()
     sampler = Sampler(cfg)
     sampler.run_length_sampling()
-    if cfg.inference.write_to_wandb:
+    if cfg.inference.write_to_wandb and dist.get_rank() == 0:
+        dist.barrier()
         sampler.write_to_wandb()
     elapsed_time = time.time() - start_time
     log.info(f'Finished in {elapsed_time:.2f}s')
