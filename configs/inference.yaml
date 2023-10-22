@@ -8,7 +8,7 @@ inference:
   name: eval
 
   # Use this to write with date-time stamp.
-  #name: run_${now:%Y-%m-%d}_${now:%H-%M-%S}
+  #name: run_${now:%Y-%m-%d}_${now:%H-%M}
 
   overwrite: False
   seed: 123

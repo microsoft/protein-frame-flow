@@ -404,7 +404,7 @@ class FlowModule(LightningModule):
             for k,v in stratified_losses.items():
                 self._log_scalar(
                     f"train/{k}", v, prog_bar=False, batch_size=num_batch)
-            
+
         # Training throughput
         self._log_scalar(
             "train/length", batch['res_mask'].shape[1], prog_bar=False, batch_size=num_batch)

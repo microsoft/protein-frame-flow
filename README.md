@@ -1,4 +1,4 @@
-# Protein flower 💮
+# Protein flower
 
 ## Installation
 
@@ -41,12 +41,12 @@ python -W ignore experiments/inference_se3_flows.py
 
 ## To-do
 
-- [] Train on SwissProt
-- [] Add DDP inference
-- [] Add SDE interpolant
-- [] Add translation schedule variant
-- [] Implement inpainting training
-- [] Implement inpainting inference/benchmark
+- [x] Train on SwissProt
+- [x] Add DDP inference
+- [ ] Add SDE interpolant
+- [ ] Add translation schedule variant
+- [ ] Implement inpainting training
+- [ ] Implement inpainting inference/benchmark
 
 # Contributing
 This project welcomes contributions and suggestions. Most contributions require you to agree to a Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us the rights to use your contribution. For details, visit https://cla.opensource.microsoft.com.
