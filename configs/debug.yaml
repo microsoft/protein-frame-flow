@@ -1,0 +1,25 @@
+defaults:
+  - base
+  - _self_
+
+data:
+  dataset:
+    max_num_res: 128
+    min_num_res: 0
+    motif_scaffold_prob: 1.0
+  sampler:
+    max_batch_size: 100
+    max_num_res_squared: 600_000
+  loader:
+    num_workers: 0
+    prefetch_factor: 1
+
+experiment:
+  debug: True
+
+  wandb:
+    name: debug
+
+  trainer:
+    accumulate_grad_batches: 1
+    check_val_every_n_epoch: 1

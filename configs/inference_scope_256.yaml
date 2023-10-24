@@ -6,13 +6,14 @@ defaults:
 
 inference:
 
-  name: no_self_conditioning
+  # name: no_self_conditioning
+  name: run_${now:%Y-%m-%d}_${now:%H-%M}
 
   # https://wandb.ai/jyim/se3-fm/runs/owv79pn2 
   ckpt_path: ckpt/se3-fm/scope_256/2023-10-19_10-54-29/last.ckpt
   
   use_gpu: True
-  num_gpus: 1
+  num_gpus: 6
 
   interpolant:
     min_t: 1e-2
@@ -29,13 +30,13 @@ inference:
     sampling:
       num_timesteps: 100
       do_sde: False
-    self_condition: False
+    self_condition: True
 
   samples:
     # Minimum sequence length to sample.
-    min_length: 60
+    min_length: 50
     # Maximum sequence length to sample.
     max_length: 255
     # gap between lengths to sample. i.e. this script will sample all lengths
     # in range(min_length, max_length, length_step)
-    length_step: 5
+    length_step: 1

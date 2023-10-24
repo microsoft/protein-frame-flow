@@ -1,6 +1,7 @@
 data:
   # CSV for path and metadata to training examples.
   dataset:
+    seed: 123
     max_num_res: 128
     cache_num_res: 0
     max_cache_size: 100_000
@@ -11,6 +12,9 @@ data:
     samples_per_eval_length: 5
     num_eval_lengths: 8
     min_eval_length: 500
+    motif_scaffold_prob: 0.0
+    min_scaffold_size: 10
+    max_scaffold_percent: 0.9
     csv_path: ./preprocessed/metadata.csv
   loader:
     num_workers: 4

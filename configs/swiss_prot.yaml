@@ -6,6 +6,7 @@ data:
   dataset:
     max_num_res: 512
     min_num_res: 60
+    motif_scaffold_prob: 0.5
     min_plddt_percent: 0.7
     max_coil_percent: 0.7
     csv_path: ./swiss_prot/swiss_prot_pkls/metadata.csv
@@ -26,9 +27,9 @@ experiment:
 
   warm_start_cfg_override: False
 
-  num_devices: 2
+  num_devices: 4
   wandb:
-    name: swiss_prot_separate_t_linear
+    name: swiss_prot_scaffolding
 
   trainer:
     check_val_every_n_epoch: 1
@@ -41,5 +42,6 @@ experiment:
   training:
     min_plddt_mask: 0.8
 
-  warm_start: ckpt/se3-fm/swiss_prot_separate_t/2023-10-21_21-21-18/last.ckpt
+  warm_start: ckpt/se3-fm/swiss_prot_separate_t_linear/2023-10-22_09-49-46/last.ckpt
+  # warm_start: ckpt/se3-fm/swiss_prot_separate_t/2023-10-21_21-21-18/last.ckpt
   # warm_start: ckpt/se3-fm/swiss_prot/2023-10-18_20-58-31/last.ckpt

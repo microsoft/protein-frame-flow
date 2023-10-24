@@ -65,11 +65,11 @@ class FlowModule(LightningModule):
 
     def model_step(self, noisy_batch: Any):
         training_cfg = self._exp_cfg.training
-        res_mask = noisy_batch['res_mask']
+        loss_mask = noisy_batch['res_mask'] * noisy_batch['diffuse_mask']
         if training_cfg.min_plddt_mask is not None:
-            loss_mask = noisy_batch['res_plddt'] > training_cfg.min_plddt_mask
-            res_mask *= loss_mask
-        num_batch, num_res = res_mask.shape
+            plddt_mask = noisy_batch['res_plddt'] > training_cfg.min_plddt_mask
+            loss_mask *= plddt_mask
+        num_batch, num_res = loss_mask.shape
 
         # Ground truth labels
         gt_trans_1 = noisy_batch['trans_1']
@@ -97,23 +97,23 @@ class FlowModule(LightningModule):
         pred_bb_atoms = all_atom.to_atom37(pred_trans_1, pred_rotmats_1)[:, :, :3]
         gt_bb_atoms *= training_cfg.bb_atom_scale / r3_norm_scale[..., None]
         pred_bb_atoms *= training_cfg.bb_atom_scale / r3_norm_scale[..., None]
-        loss_denom = torch.sum(res_mask, dim=-1) * 3
+        loss_denom = torch.sum(loss_mask, dim=-1) * 3
         bb_atom_loss = torch.sum(
-            (gt_bb_atoms - pred_bb_atoms) ** 2 * res_mask[..., None, None],
+            (gt_bb_atoms - pred_bb_atoms) ** 2 * loss_mask[..., None, None],
             dim=(-1, -2, -3)
         ) / loss_denom
 
         # Translation VF loss
         trans_error = (gt_trans_1 - pred_trans_1) / r3_norm_scale * training_cfg.trans_scale
         trans_loss = training_cfg.translation_loss_weight * torch.sum(
-            trans_error ** 2 * res_mask[..., None],
+            trans_error ** 2 * loss_mask[..., None],
             dim=(-1, -2)
         ) / loss_denom
 
         # Rotation VF loss
         rots_vf_error = (gt_rot_vf - pred_rots_vf) / so3_norm_scale
         rots_vf_loss = training_cfg.rotation_loss_weights * torch.sum(
-            rots_vf_error ** 2 * res_mask[..., None],
+            rots_vf_error ** 2 * loss_mask[..., None],
             dim=(-1, -2)
         ) / loss_denom
 
@@ -125,9 +125,9 @@ class FlowModule(LightningModule):
         pred_pair_dists = torch.linalg.norm(
             pred_flat_atoms[:, :, None, :] - pred_flat_atoms[:, None, :, :], dim=-1)
 
-        flat_loss_mask = torch.tile(res_mask[:, :, None], (1, 1, 3))
+        flat_loss_mask = torch.tile(loss_mask[:, :, None], (1, 1, 3))
         flat_loss_mask = flat_loss_mask.reshape([num_batch, num_res*3])
-        flat_res_mask = torch.tile(res_mask[:, :, None], (1, 1, 3))
+        flat_res_mask = torch.tile(loss_mask[:, :, None], (1, 1, 3))
         flat_res_mask = flat_res_mask.reshape([num_batch, num_res*3])
 
         gt_pair_dists = gt_pair_dists * flat_loss_mask[..., None]
@@ -146,7 +146,7 @@ class FlowModule(LightningModule):
         )
         auxiliary_loss *= self._exp_cfg.training.aux_loss_weight
         se3_vf_loss += auxiliary_loss
-        all_losses = {
+        return {
             "bb_atom_loss": bb_atom_loss,
             "trans_loss": trans_loss,
             "dist_mat_loss": dist_mat_loss,
@@ -154,7 +154,6 @@ class FlowModule(LightningModule):
             "rots_vf_loss": rots_vf_loss,
             "se3_vf_loss": se3_vf_loss
         }
-        return noisy_batch, all_losses
 
     def validation_step(self, batch: Any, batch_idx: int):
         res_mask = batch['res_mask']
@@ -368,13 +367,14 @@ class FlowModule(LightningModule):
         step_start_time = time.time()
         self.interpolant.set_device(batch['res_mask'].device)
         noisy_batch = self.interpolant.corrupt_batch(batch)
-        # TODO: Add motif-scaffolding.
-        noisy_batch['diffuse_mask'] = batch['res_mask']
         if self._interpolant_cfg.self_condition and random.random() > 0.5:
             with torch.no_grad():
                 model_sc = self.model(noisy_batch)
-                noisy_batch['trans_sc'] = model_sc['pred_trans']
-        _, batch_losses = self.model_step(noisy_batch)
+                noisy_batch['trans_sc'] = (
+                    model_sc['pred_trans'] * noisy_batch['diffuse_mask'][..., None]
+                    + noisy_batch['trans_1'] * (1 - noisy_batch['diffuse_mask'][..., None])
+                )
+        batch_losses = self.model_step(noisy_batch)
         num_batch = batch_losses['bb_atom_loss'].shape[0]
         total_losses = {
             k: torch.mean(v) for k,v in batch_losses.items()
@@ -406,6 +406,9 @@ class FlowModule(LightningModule):
                     f"train/{k}", v, prog_bar=False, batch_size=num_batch)
 
         # Training throughput
+        self._log_scalar(
+            "train/scaffolding_percent", 
+            torch.mean(batch['diffuse_mask'].float()).item(), prog_bar=False, batch_size=num_batch)
         self._log_scalar(
             "train/length", batch['res_mask'].shape[1], prog_bar=False, batch_size=num_batch)
         self._log_scalar(
