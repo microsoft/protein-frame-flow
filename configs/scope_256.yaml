@@ -5,7 +5,10 @@ defaults:
 data:
   dataset:
     max_num_res: 256
+    motif_scaffold_prob: 0.0
   sampler:
+    # max_batch_size: 128
+    # max_num_res_squared: 1_000_000
     max_batch_size: 100
     max_num_res_squared: 500_000
 
@@ -29,9 +32,9 @@ experiment:
     accumulate_grad_batches: 2
 
   wandb:
-    # name: scope_256_separate_t_rescaled
     name: scope_256_separate_t_linear
+    # name: scope_256_scaffolding
+    # name: scope_256_separate_t
 
-  warm_start: ckpt/se3-fm/scope_256_separate_t/2023-10-21_21-16-02/last.ckpt
-  # warm_start: ckpt/se3-fm/scope_256_separate_t/2023-10-20_14-49-35/last.ckpt
-  # warm_start: ckpt/se3-fm/scope_256/2023-10-18_21-21-20/last.ckpt
+  warm_start: ckpt/se3-fm/scope_256_separate_t_linear/2023-10-22_08-51-56/last.ckpt
+  # warm_start: ckpt/se3-fm/scope_256_scaffolding/2023-10-23_19-49-31/last.ckpt

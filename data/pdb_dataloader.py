@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import pandas as pd
 import logging
+import random
 
 from data import utils as du
 from openfold.data import data_transforms
@@ -72,6 +73,7 @@ class PdbDataset(Dataset):
         self._dataset_cfg = dataset_cfg
         self._init_metadata()
         self._cache = {}
+        self._rng = np.random.default_rng(seed=self._dataset_cfg.seed)
 
     @property
     def is_training(self):
@@ -158,11 +160,29 @@ class PdbDataset(Dataset):
             'res_idx': res_idx - np.min(res_idx) + 1,
             'rotmats_1': rotmats_1,
             'trans_1': trans_1,
-            'res_mask': processed_feats['bb_mask'].astype(np.int32),
+            'res_mask': torch.tensor(processed_feats['bb_mask']).int(),
         }
 
     def __len__(self):
         return len(self.csv)
+
+    def _create_motif_scaffold(self, batch):
+        trans_1 = batch['trans_1']
+        dist2d = torch.linalg.norm(trans_1[:, None, :] - trans_1[None, :, :], dim=-1)
+        diff_mask = torch.zeros_like(trans_1)
+        crop_seed = self._rng.integers(dist2d.shape[0])
+        seed_dists = dist2d[crop_seed]
+        max_scaffold_size = math.floor(
+            seed_dists.shape[0] * self._dataset_cfg.max_scaffold_percent)
+        scaffold_size = self._rng.integers(
+            low=self._dataset_cfg.min_scaffold_size,
+            high=max_scaffold_size
+        )
+        dist_cutoff = np.sort(seed_dists)[scaffold_size]
+        diff_mask = (seed_dists > dist_cutoff).int()
+        if torch.sum(diff_mask) == 0:
+            diff_mask = torch.ones_like(diff_mask)
+        return diff_mask
 
     def __getitem__(self, idx):
         # Sample data example.
@@ -174,6 +194,11 @@ class PdbDataset(Dataset):
             chain_feats = self.read_cache(processed_file_path)
         else:
             chain_feats = self._process_csv_row(processed_file_path)
+        if self._rng.random() < self._dataset_cfg.motif_scaffold_prob and self.is_training:
+            diff_mask = self._create_motif_scaffold(chain_feats)
+            chain_feats['diffuse_mask'] = diff_mask
+        else:
+            chain_feats['diffuse_mask'] = torch.ones_like(chain_feats['res_mask'])
         chain_feats['csv_idx'] = torch.ones(1, dtype=torch.long) * idx
         return chain_feats
 

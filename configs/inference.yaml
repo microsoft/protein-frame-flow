@@ -5,10 +5,10 @@ defaults:
 
 inference:
 
-  name: eval
+  # name: eval
 
   # Use this to write with date-time stamp.
-  #name: run_${now:%Y-%m-%d}_${now:%H-%M}
+  name: run_${now:%Y-%m-%d}_${now:%H-%M}
 
   overwrite: False
   seed: 123
@@ -17,7 +17,7 @@ inference:
   ckpt_path: ckpt/se3-fm/scope_256/2023-10-19_10-54-29/last.ckpt
   
   use_gpu: True
-  num_gpus: 4
+  num_gpus: 6
 
   interpolant:
     min_t: 1e-2
@@ -51,10 +51,10 @@ inference:
     # Number of ESMFdold samples per backbone sample.
     seq_per_sample: 8
     # Minimum sequence length to sample.
-    min_length: 60
+    min_length: 50
     # Maximum sequence length to sample.
-    max_length: 255
+    max_length: 256
     # gap between lengths to sample. i.e. this script will sample all lengths
     # in range(min_length, max_length, length_step)
-    length_step: 5
+    length_step: 1
     overwrite: False

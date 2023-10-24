@@ -42,7 +42,7 @@ class Interpolant:
        t = torch.rand(num_batch, device=self._device)
        return t * (1 - 2*self._cfg.min_t) + self._cfg.min_t
 
-    def _corrupt_trans(self, trans_1, t, res_mask):
+    def _corrupt_trans(self, trans_1, t, res_mask, diffuse_mask):
         trans_nm_0 = _centered_gaussian(*res_mask.shape, self._device)
         trans_0 = trans_nm_0 * du.NM_TO_ANG_SCALE
         if self._trans_cfg.pre_align:
@@ -55,6 +55,7 @@ class Interpolant:
             trans_0 = self._batch_ot(trans_0, trans_1, res_mask)
         if self._trans_cfg.train_schedule == 'linear':
             trans_t = (1 - t[..., None]) * trans_0 + t[..., None] * trans_1
+            trans_t = trans_t * diffuse_mask[..., None] + trans_1 * (1 - diffuse_mask[..., None])
         else:
             raise ValueError(
                 f'Unknown trans schedule {self._trans_cfg.train_schedule}')
@@ -81,7 +82,7 @@ class Interpolant:
         noise_perm, gt_perm = linear_sum_assignment(du.to_numpy(cost_matrix))
         return aligned_nm_0[(tuple(gt_perm), tuple(noise_perm))]
     
-    def _corrupt_rotmats(self, rotmats_1, t, res_mask):
+    def _corrupt_rotmats(self, rotmats_1, t, res_mask, diffuse_mask):
         num_batch, num_res = res_mask.shape
         # rotmats_0 = _uniform_so3(num_batch, num_res, self._device)
         noisy_rotmats = self.igso3.sample(
@@ -105,6 +106,10 @@ class Interpolant:
             rotmats_t * res_mask[..., None, None]
             + identity[None, None] * (1 - res_mask[..., None, None])
         )
+        rotmats_t = (
+            rotmats_t * diffuse_mask[..., None, None]
+            + rotmats_1 * (1 - diffuse_mask[..., None, None])
+        )
         return rotmats_t
 
     def corrupt_batch(self, batch):
@@ -118,7 +123,8 @@ class Interpolant:
 
         # [B, N]
         res_mask = batch['res_mask']
-        num_batch, _ = res_mask.shape
+        diffuse_mask = batch['diffuse_mask']
+        num_batch, _ = diffuse_mask.shape
 
         # [B, 1]
         if self._cfg.separate_t:
@@ -135,13 +141,13 @@ class Interpolant:
 
         # Apply corruptions
         if self._trans_cfg.corrupt:
-            trans_t = self._corrupt_trans(trans_1, r3_t, res_mask)
+            trans_t = self._corrupt_trans(trans_1, r3_t, res_mask, diffuse_mask)
         else:
             trans_t = trans_1
         noisy_batch['trans_t'] = trans_t
 
         if self._rots_cfg.corrupt:
-            rotmats_t = self._corrupt_rotmats(rotmats_1, so3_t, res_mask)
+            rotmats_t = self._corrupt_rotmats(rotmats_1, so3_t, res_mask, diffuse_mask)
         else:
             rotmats_t = rotmats_1
         noisy_batch['rotmats_t'] = rotmats_t
