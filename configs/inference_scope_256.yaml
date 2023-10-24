@@ -6,18 +6,22 @@ defaults:
 
 inference:
 
-  # name: no_self_conditioning
-  name: run_${now:%Y-%m-%d}_${now:%H-%M}
+  # name: provide_kappa_t
+  name: provide_linear_t
+  # name: run_${now:%Y-%m-%d}_${now:%H-%M}
+
+  # https://wandb.ai/jyim/se3-fm/runs/kfpo804x 
+  ckpt_path: ckpt/se3-fm/scope_256_separate_t_linear/2023-10-22_08-51-56/last.ckpt
 
   # https://wandb.ai/jyim/se3-fm/runs/owv79pn2 
-  ckpt_path: ckpt/se3-fm/scope_256/2023-10-19_10-54-29/last.ckpt
+  # ckpt_path: ckpt/se3-fm/scope_256/2023-10-19_10-54-29/last.ckpt
   
   use_gpu: True
-  num_gpus: 6
+  num_gpus: 2
 
   interpolant:
     min_t: 1e-2
-    provide_kappa: True
+    provide_kappa: False
     rots:
       corrupt: True
       sample_schedule: exp
@@ -34,9 +38,9 @@ inference:
 
   samples:
     # Minimum sequence length to sample.
-    min_length: 50
+    min_length: 60
     # Maximum sequence length to sample.
-    max_length: 255
+    max_length: 250
     # gap between lengths to sample. i.e. this script will sample all lengths
     # in range(min_length, max_length, length_step)
-    length_step: 1
+    length_step: 5
