@@ -56,6 +56,14 @@ class Interpolant:
         if self._trans_cfg.train_schedule == 'linear':
             trans_t = (1 - t[..., None]) * trans_0 + t[..., None] * trans_1
             trans_t = trans_t * diffuse_mask[..., None] + trans_1 * (1 - diffuse_mask[..., None])
+        elif self._trans_cfg.train_schedule == 'vpsde':
+            # t (B,1)
+            # trans_0 (B, N, 3)
+            bmin = self._trans_cfg.vpsde_bmin
+            bmax = self._trans_cfg.vpsde_bmax
+            alpha_t = torch.exp(- bmin * (1-t) - 0.5 * (1-t)**2 * (bmax - bmin)) # (B,1)
+            trans_t = torch.sqrt(alpha_t[..., None]) * trans_1 + torch.sqrt(1 - alpha_t[..., None]) * trans_0
+            trans_t = trans_t * diffuse_mask[..., None] + trans_1 * (1 - diffuse_mask[..., None])
         else:
             raise ValueError(
                 f'Unknown trans schedule {self._trans_cfg.train_schedule}')
@@ -128,8 +136,15 @@ class Interpolant:
 
         # [B, 1]
         if self._cfg.separate_t:
-            so3_t = self.sample_t(num_batch)[:, None]
-            r3_t = self.sample_t(num_batch)[:, None]
+            if self._cfg.hierarchical_t:
+                max_t = torch.rand(num_batch, device=self._device) * (1 - self._cfg.min_t)
+                so3_t = self._cfg.min_t + torch.rand(num_batch, device=self._device) * (max_t - self._cfg.min_t)
+                r3_t = self._cfg.min_t + torch.rand(num_batch, device=self._device) * (max_t - self._cfg.min_t)
+                so3_t = so3_t[:, None]
+                r3_t = r3_t[:, None]
+            else:
+                so3_t = self.sample_t(num_batch)[:, None]
+                r3_t = self.sample_t(num_batch)[:, None]
         else:
             t = self.sample_t(num_batch)[:, None]
             so3_t = t
@@ -162,17 +177,27 @@ class Interpolant:
             raise ValueError(
                 f'Invalid schedule: {self._rots_cfg.sample_schedule}')
 
-    def trans_sample_kappa(self, t):
-        if self._trans_cfg.sample_schedule == 'linear':
-            return t
-        else:
-            raise ValueError(
-                f'Invalid schedule: {self._trans_cfg.sample_schedule}')
-
     def _trans_euler_step(self, d_t, t, trans_1, trans_t):
-        trans_vf = (trans_1 - trans_t) / (1 - t)
         # TODO: Add in temperature
         # TODO: Add in SDE
+        assert d_t > 0
+
+        # TODO implement the ability to switch between schedules
+        assert self._trans_cfg.sample_schedule == self._trans_cfg.train_schedule
+
+        if self._trans_cfg.sample_schedule == 'linear':
+            trans_vf = (trans_1 - trans_t) / (1 - t)
+        elif self._trans_cfg.sample_schedule == 'vpsde':
+            bmin = self._trans_cfg.vpsde_bmin
+            bmax = self._trans_cfg.vpsde_bmax
+            bt = bmin + (bmax - bmin) * (1-t) # scalar
+            alpha_t = torch.exp(- bmin * (1-t) - 0.5 * (1-t)**2 * (bmax - bmin)) # scalar
+            trans_vf = 0.5 * bt * trans_t + \
+                0.5 * bt * (torch.sqrt(alpha_t) * trans_1 - trans_t) / (1 - alpha_t)
+        else:
+            raise ValueError(
+                f'Invalid sample schedule: {self._trans_cfg.sample_schedule}'
+            )
         return trans_t + trans_vf * d_t
 
     def _rots_euler_step(self, d_t, t, rotmats_1, rotmats_t):

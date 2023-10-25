@@ -29,6 +29,7 @@ interpolant:
   min_t: 1e-2
   separate_t: True
   provide_kappa: True
+  hierarchical_t: False
   rots:
     corrupt: True
     train_schedule: linear
@@ -41,6 +42,8 @@ interpolant:
     train_schedule: linear
     sample_schedule: linear
     sample_temp: 1.0
+    vpsde_bmin: 0.1
+    vpsde_bmax: 20.0
   sampling:
     num_timesteps: 100
     do_sde: False
