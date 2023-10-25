@@ -146,6 +146,8 @@ class FlowModule(LightningModule):
         )
         auxiliary_loss *= self._exp_cfg.training.aux_loss_weight
         se3_vf_loss += auxiliary_loss
+        if torch.isnan(se3_vf_loss).any():
+            raise ValueError('NaN loss encountered')
         return {
             "bb_atom_loss": bb_atom_loss,
             "trans_loss": trans_loss,

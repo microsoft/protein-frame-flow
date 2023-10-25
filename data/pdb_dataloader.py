@@ -180,7 +180,7 @@ class PdbDataset(Dataset):
         )
         dist_cutoff = np.sort(seed_dists)[scaffold_size]
         diff_mask = (seed_dists > dist_cutoff).int()
-        if torch.sum(diff_mask) == 0:
+        if torch.sum(diff_mask) < self._dataset_cfg.min_scaffold_size:
             diff_mask = torch.ones_like(diff_mask)
         return diff_mask
 
