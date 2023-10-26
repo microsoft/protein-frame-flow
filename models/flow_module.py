@@ -32,6 +32,7 @@ class FlowModule(LightningModule):
         self._print_logger = logging.getLogger(__name__)
         self._exp_cfg = cfg.experiment
         self._model_cfg = cfg.model
+        self._data_cfg = cfg.data
         self._interpolant_cfg = cfg.interpolant
 
         # Set-up vector field prediction model
@@ -161,12 +162,19 @@ class FlowModule(LightningModule):
         res_mask = batch['res_mask']
         self.interpolant.set_device(res_mask.device)
         num_batch, num_res = res_mask.shape
+        if (self._data_cfg.dataset.spherical_motif_prob
+            + self._data_cfg.dataset.contiguous_motif_prob) == 1.0:
+            diffuse_mask = batch['diffuse_mask']
+        else:
+            diffuse_mask = None 
+        
         samples = self.interpolant.sample(
             num_batch,
             num_res,
             self.model,
             trans_1=batch['trans_1'],
-            rotmats_1=batch['rotmats_1']
+            rotmats_1=batch['rotmats_1'],
+            diffuse_mask=diffuse_mask
         )[0][-1].numpy()
 
         batch_metrics = []

@@ -12,9 +12,11 @@ data:
     samples_per_eval_length: 5
     num_eval_lengths: 8
     min_eval_length: 500
-    motif_scaffold_prob: 0.0
+    spherical_motif_prob: 0.0
+    contiguous_motif_prob: 0.0
     min_scaffold_size: 10
     max_scaffold_percent: 0.9
+    min_motif_size: 5
     csv_path: ./preprocessed/metadata.csv
   loader:
     num_workers: 4

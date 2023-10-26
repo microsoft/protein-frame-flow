@@ -7,28 +7,39 @@ defaults:
 inference:
 
   # name: provide_kappa_t
-  name: provide_linear_t
-  # name: run_${now:%Y-%m-%d}_${now:%H-%M}
+  # name: provide_linear_t
+  name: unconditional # run_${now:%Y-%m-%d}_${now:%H-%M}
+
+  # https://wandb.ai/jyim/se3-fm/runs/mbc8jgjs/overview 
+  ckpt_path: ckpt/se3-fm/scope_256_scaffolding/2023-10-24_21-13-38/last.ckpt
+
+  # https://wandb.ai/jyim/se3-fm/runs/3eppp6rb/overview 
+  # ckpt_path: ckpt/se3-fm/swiss_prot_scaffolding/2023-10-25_08-43-27/last.ckpt
+
+  # https://wandb.ai/jyim/se3-fm/runs/6cbiiucu/overview
+  # ckpt_path: ckpt/se3-fm/scope_256_separate_t_linear/2023-10-24_08-18-13/last.ckpt
 
   # https://wandb.ai/jyim/se3-fm/runs/kfpo804x 
-  ckpt_path: ckpt/se3-fm/scope_256_separate_t_linear/2023-10-22_08-51-56/last.ckpt
+  # ckpt_path: ckpt/se3-fm/scope_256_separate_t_linear/2023-10-22_08-51-56/last.ckpt
 
   # https://wandb.ai/jyim/se3-fm/runs/owv79pn2 
   # ckpt_path: ckpt/se3-fm/scope_256/2023-10-19_10-54-29/last.ckpt
   
   use_gpu: True
-  num_gpus: 2
+  num_gpus: 5
 
   interpolant:
     min_t: 1e-2
     provide_kappa: False
     rots:
       corrupt: True
+      train_schedule: linear
       sample_schedule: exp
       exp_rate: 10
     trans:
       corrupt: True
       pre_align: True
+      train_schedule: linear
       sample_schedule: linear
       sample_temp: 1.0
     sampling:
@@ -38,9 +49,9 @@ inference:
 
   samples:
     # Minimum sequence length to sample.
-    min_length: 60
+    min_length: 50
     # Maximum sequence length to sample.
-    max_length: 250
+    max_length: 255
     # gap between lengths to sample. i.e. this script will sample all lengths
     # in range(min_length, max_length, length_step)
     length_step: 5

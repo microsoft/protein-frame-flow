@@ -53,6 +53,7 @@ class FlowModel(nn.Module):
 
     def forward(self, input_feats):
         node_mask = input_feats['res_mask']
+        diffuse_mask = input_feats['diffuse_mask']
         edge_mask = node_mask[:, None] * node_mask[:, :, None]
         so3_t = input_feats['so3_t']
         r3_t = input_feats['r3_t']
@@ -65,7 +66,7 @@ class FlowModel(nn.Module):
 
         # Initialize node and edge embeddings
         init_node_embed = self.node_feature_net(
-            continuous_t, so3_t, r3_t, node_mask)
+            continuous_t, so3_t, r3_t, diffuse_mask)
         if 'trans_sc' not in input_feats:
             trans_sc = torch.zeros_like(trans_t)
         else:
@@ -97,7 +98,7 @@ class FlowModel(nn.Module):
             rigid_update = self.trunk[f'bb_update_{b}'](
                 node_embed * node_mask[..., None])
             curr_rigids = curr_rigids.compose_q_update_vec(
-                rigid_update, node_mask[..., None])
+                rigid_update, (node_mask * diffuse_mask)[..., None])
 
             if b < self._ipa_conf.num_blocks-1:
                 edge_embed = self.trunk[f'edge_transition_{b}'](
