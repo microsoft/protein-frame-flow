@@ -1,4 +1,4 @@
-name: fm
+name: fm_os
 channels:
   - pytorch
   - nvidia

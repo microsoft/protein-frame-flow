@@ -4,7 +4,7 @@
 
 ```bash
 # Conda environment with dependencies.
-conda env update -n fm --file fm.yaml
+conda env update -f fm.yml
 
 # Activate environment
 conda activate fm

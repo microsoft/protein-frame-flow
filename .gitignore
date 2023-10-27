@@ -1,12 +1,9 @@
 wandb/
 wandb*.json
-swiss_prot/
 **/*.ckpt
 **/*.pth
 **/*.pdb
-preprocessed/
 ckpt/
-.vscode/
 *.code-workspace
 outputs/
 **/*.txt
