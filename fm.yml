@@ -344,7 +344,6 @@ dependencies:
       - termcolor==2.3.0
       - tmtools==0.0.3
       - torch==2.0.1
-      - torch-scatter==2.1.1+pt20cu117
       - torchmetrics==1.0.3
       - tqdm==4.66.1
       - triton==2.0.0

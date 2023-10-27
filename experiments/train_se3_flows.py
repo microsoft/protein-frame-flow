@@ -9,7 +9,7 @@ from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import LightningDataModule, LightningModule, Trainer
 from pytorch_lightning.loggers.wandb import WandbLogger
 from pytorch_lightning.trainer import Trainer
-from pytorch_lightning.callbacks import ModelCheckpoint, StochasticWeightAveraging
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 from data.pdb_dataloader import PdbDataModule
 from models.flow_module import FlowModule
@@ -57,9 +57,6 @@ class Experiment:
             flat_cfg = dict(eu.flatten_dict(cfg_dict))
             if isinstance(logger.experiment.config, wandb.sdk.wandb_config.Config):
                 logger.experiment.config.update(flat_cfg)
-
-        if self._exp_cfg.use_swa:
-            callbacks.append(StochasticWeightAveraging(swa_lrs=1e-2))
 
         devices = GPUtil.getAvailable(order='memory', limit = 8)[:self._exp_cfg.num_devices]
         log.info(f"Using devices: {devices}")

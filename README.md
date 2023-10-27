@@ -6,6 +6,9 @@
 # Conda environment with dependencies.
 conda env update -f fm.yml
 
+# Manually need to install torch-scatter.
+pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu117.html
+
 # Activate environment
 conda activate fm
 
@@ -14,9 +17,15 @@ conda activate fm
 pip install -e .
 ```
 
-Next log in to Wandb and make an account.
+## Wandb
+
+Our training relies on logging with wandb. Log in to Wandb and make an account.
 Authorize Wandb [here](https://wandb.ai/authorize).
-Wandb is necessary to run training and inference.
+
+## Data
+
+
+
 
 ## Run training
 
