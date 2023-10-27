@@ -1,0 +1,13 @@
+trigger:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+- script: pip install .
+  displayName: 'Install dependencies'
+
+- script: |
+    echo minimal pipeline just to trigger component governance
+  displayName: 'nop'
