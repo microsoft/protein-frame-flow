@@ -10,7 +10,7 @@ conda env update -f fm.yml
 pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu117.html
 
 # Activate environment
-conda activate fm
+conda activate fm_os
 
 # Install local package.
 # Current directory should be flow-matching/
