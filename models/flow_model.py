@@ -1,9 +1,9 @@
-
+"""Neural network architecture for the flow model."""
 import torch
 from torch import nn
 
-from models.node_feature_net import NodeFeatureNet
-from models.edge_feature_net import EdgeFeatureNet
+from models.node_embedder import NodeEmbedder
+from models.edge_embedder import EdgeEmbedder
 from models import ipa_pytorch
 from data import utils as du
 
@@ -16,8 +16,8 @@ class FlowModel(nn.Module):
         self._ipa_conf = model_conf.ipa
         self.rigids_ang_to_nm = lambda x: x.apply_trans_fn(lambda x: x * du.ANG_TO_NM_SCALE)
         self.rigids_nm_to_ang = lambda x: x.apply_trans_fn(lambda x: x * du.NM_TO_ANG_SCALE) 
-        self.node_feature_net = NodeFeatureNet(model_conf.node_features)
-        self.edge_feature_net = EdgeFeatureNet(model_conf.edge_features)
+        self.node_embedder = NodeEmbedder(model_conf.node_features)
+        self.edge_embedder = EdgeEmbedder(model_conf.edge_features)
 
         # Attention trunk
         self.trunk = nn.ModuleDict()
@@ -53,25 +53,18 @@ class FlowModel(nn.Module):
 
     def forward(self, input_feats):
         node_mask = input_feats['res_mask']
-        diffuse_mask = input_feats['diffuse_mask']
         edge_mask = node_mask[:, None] * node_mask[:, :, None]
-        so3_t = input_feats['so3_t']
-        r3_t = input_feats['r3_t']
-        if 't' in input_feats:
-            continuous_t = input_feats['t']
-        else:
-            continuous_t = None
+        continuous_t = input_feats['t']
         trans_t = input_feats['trans_t']
         rotmats_t = input_feats['rotmats_t']
 
         # Initialize node and edge embeddings
-        init_node_embed = self.node_feature_net(
-            continuous_t, so3_t, r3_t, diffuse_mask)
+        init_node_embed = self.node_embedder(continuous_t, node_mask)
         if 'trans_sc' not in input_feats:
             trans_sc = torch.zeros_like(trans_t)
         else:
             trans_sc = input_feats['trans_sc']
-        init_edge_embed = self.edge_feature_net(
+        init_edge_embed = self.edge_embedder(
             init_node_embed, trans_t, trans_sc, edge_mask)
 
         # Initial rigids
@@ -98,7 +91,7 @@ class FlowModel(nn.Module):
             rigid_update = self.trunk[f'bb_update_{b}'](
                 node_embed * node_mask[..., None])
             curr_rigids = curr_rigids.compose_q_update_vec(
-                rigid_update, (node_mask * diffuse_mask)[..., None])
+                rigid_update, node_mask[..., None])
 
             if b < self._ipa_conf.num_blocks-1:
                 edge_embed = self.trunk[f'edge_transition_{b}'](

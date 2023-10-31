@@ -24,8 +24,31 @@ Authorize Wandb [here](https://wandb.ai/authorize).
 
 ## Data
 
+Download preprocessed SCOPe dataset (~280MB) hosted on dropbox: [link](https://www.dropbox.com/scl/fi/b8l0bqowi96hl21ycsmht/preprocessed_scope.tar.gz?rlkey=0h7uulr7ioyvzlap6a0rwpx0n&dl=0)
 
-
+```bash
+# Expand tar file.
+tar -xvzf preprocessed_scope.tar.gz
+rm preprocessed_scope.tar.gz
+```
+Your directory should now look like this 
+```
+├── analysis
+├── configs
+├── data
+├── experiments
+├── models
+├── notebooks
+├── openfold
+│   ├── data
+│   │   └── tools
+│   ├── model
+│   ├── np
+│   │   └── relax
+│   ├── resources
+│   └── utils
+└── preprocessed
+```
 
 ## Run training
 
@@ -33,12 +56,6 @@ Authorize Wandb [here](https://wandb.ai/authorize).
 ```bash
 # Train on SCOPe up to length 128
 python -W ignore experiments/train_se3_flows.py
-
-# Train on SCOPe up to length 256
-python -W ignore experiments/train_se3_flows.py -cn scope_256
-
-# Train on SwissProt up to length 512
-python -W ignore experiments/train_se3_flows.py -cn swiss_prot
 ```
 
 ## Run inference

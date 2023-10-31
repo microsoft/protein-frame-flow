@@ -52,15 +52,9 @@ class Interpolant:
        t = torch.rand(num_batch, device=self._device)
        return t * (1 - 2*self._cfg.min_t) + self._cfg.min_t
 
-    def _corrupt_trans(self, trans_1, t, res_mask, diffuse_mask):
+    def _corrupt_trans(self, trans_1, t, res_mask):
         trans_nm_0 = _centered_gaussian(*res_mask.shape, self._device)
         trans_0 = trans_nm_0 * du.NM_TO_ANG_SCALE
-        if self._trans_cfg.pre_align:
-            if self._trans_cfg.batch_ot:
-                raise ValueError('Using pre-align and BatchOT.')
-            trans_0, _, _ = du.batch_align_structures(
-                trans_0, trans_1, mask=res_mask
-            )
         if self._trans_cfg.batch_ot:
             trans_0 = self._batch_ot(trans_0, trans_1, res_mask)
         if self._trans_cfg.train_schedule == 'linear':
@@ -75,7 +69,7 @@ class Interpolant:
         else:
             raise ValueError(
                 f'Unknown trans schedule {self._trans_cfg.train_schedule}')
-        trans_t = _trans_diffuse_mask(trans_t, trans_1, diffuse_mask)
+        trans_t = _trans_diffuse_mask(trans_t, trans_1, res_mask)
         return trans_t * res_mask[..., None]
     
     def _batch_ot(self, trans_0, trans_1, res_mask):
@@ -99,7 +93,7 @@ class Interpolant:
         noise_perm, gt_perm = linear_sum_assignment(du.to_numpy(cost_matrix))
         return aligned_nm_0[(tuple(gt_perm), tuple(noise_perm))]
     
-    def _corrupt_rotmats(self, rotmats_1, t, res_mask, diffuse_mask):
+    def _corrupt_rotmats(self, rotmats_1, t, res_mask):
         num_batch, num_res = res_mask.shape
         noisy_rotmats = self.igso3.sample(
             torch.tensor([1.5]),
@@ -122,7 +116,7 @@ class Interpolant:
             rotmats_t * res_mask[..., None, None]
             + identity[None, None] * (1 - res_mask[..., None, None])
         )
-        return _rots_diffuse_mask(rotmats_t, rotmats_1, diffuse_mask)
+        return _rots_diffuse_mask(rotmats_t, rotmats_1, res_mask)
 
     def corrupt_batch(self, batch):
         noisy_batch = copy.deepcopy(batch)
@@ -135,40 +129,17 @@ class Interpolant:
 
         # [B, N]
         res_mask = batch['res_mask']
-        diffuse_mask = batch['diffuse_mask']
-        num_batch, _ = diffuse_mask.shape
+        num_batch, _ = res_mask.shape
 
         # [B, 1]
-        if self._cfg.separate_t:
-            if self._cfg.hierarchical_t:
-                max_t = torch.rand(num_batch, device=self._device) * (1 - self._cfg.min_t)
-                so3_t = self._cfg.min_t + torch.rand(num_batch, device=self._device) * (max_t - self._cfg.min_t)
-                r3_t = self._cfg.min_t + torch.rand(num_batch, device=self._device) * (max_t - self._cfg.min_t)
-                so3_t = so3_t[:, None]
-                r3_t = r3_t[:, None]
-            else:
-                so3_t = self.sample_t(num_batch)[:, None]
-                r3_t = self.sample_t(num_batch)[:, None]
-        else:
-            t = self.sample_t(num_batch)[:, None]
-            so3_t = t
-            r3_t = t
-            # TODO: Eventually get rid of.
-            noisy_batch['t'] = t
-        noisy_batch['so3_t'] = so3_t
-        noisy_batch['r3_t'] = r3_t
+        t = self.sample_t(num_batch)[:, None]
+        noisy_batch['t'] = t
 
         # Apply corruptions
-        if self._trans_cfg.corrupt:
-            trans_t = self._corrupt_trans(trans_1, r3_t, res_mask, diffuse_mask)
-        else:
-            trans_t = trans_1
+        trans_t = self._corrupt_trans(trans_1, t, res_mask)
         noisy_batch['trans_t'] = trans_t
 
-        if self._rots_cfg.corrupt:
-            rotmats_t = self._corrupt_rotmats(rotmats_1, so3_t, res_mask, diffuse_mask)
-        else:
-            rotmats_t = rotmats_1
+        rotmats_t = self._corrupt_rotmats(rotmats_1, t, res_mask)
         noisy_batch['rotmats_t'] = rotmats_t
         return noisy_batch
     
@@ -222,10 +193,6 @@ class Interpolant:
             num_batch,
             num_res,
             model,
-            num_timesteps=None,
-            trans_1=None,
-            rotmats_1=None,
-            diffuse_mask=None,
         ):
         res_mask = torch.ones(num_batch, num_res, device=self._device)
 
@@ -237,19 +204,9 @@ class Interpolant:
             'res_mask': res_mask,
         }
 
-        motif_scaffolding = False
-        if diffuse_mask is not None and trans_1 is not None and rotmats_1 is not None:
-            motif_scaffolding = True
-        if motif_scaffolding:
-            batch['diffuse_mask'] = diffuse_mask
-
-            trans_0 = _trans_diffuse_mask(trans_0, trans_1, diffuse_mask)
-            rotmats_0 = _rots_diffuse_mask(rotmats_0, rotmats_1, diffuse_mask)
-
         # Set-up time
-        if num_timesteps is None:
-            num_timesteps = self._sample_cfg.num_timesteps
-        ts = torch.linspace(self._cfg.min_t, 1.0, num_timesteps)
+        ts = torch.linspace(
+            self._cfg.min_t, 1.0, self._sample_cfg.num_timesteps)
         t_1 = ts[0]
 
         prot_traj = [(trans_0, rotmats_0)]
@@ -258,25 +215,10 @@ class Interpolant:
 
             # Run model.
             trans_t_1, rotmats_t_1 = prot_traj[-1]
-            if self._trans_cfg.corrupt:
-                batch['trans_t'] = trans_t_1
-            else:
-                if trans_1 is None:
-                    raise ValueError('Must provide trans_1 if not corrupting.')
-                batch['trans_t'] = trans_1
-            if self._rots_cfg.corrupt:
-                batch['rotmats_t'] = rotmats_t_1
-            else:
-                if rotmats_1 is None:
-                    raise ValueError('Must provide rotmats_1 if not corrupting.')
-                batch['trans_t'] = rotmats_1
+            batch['trans_t'] = trans_t_1
+            batch['rotmats_t'] = rotmats_t_1
             t = torch.ones((num_batch, 1), device=self._device) * t_1
             batch['t'] = t
-            if self._cfg.provide_kappa:
-                batch['so3_t'] = self.rot_sample_kappa(t)
-            else:
-                batch['so3_t'] = t
-            batch['r3_t'] = t
             with torch.no_grad():
                 model_out = model(batch)
 
@@ -295,27 +237,14 @@ class Interpolant:
                 d_t, t_1, pred_trans_1, trans_t_1)
             rotmats_t_2 = self._rots_euler_step(
                 d_t, t_1, pred_rotmats_1, rotmats_t_1)
-            if motif_scaffolding:
-                trans_t_2 = _trans_diffuse_mask(trans_t_2, trans_1, diffuse_mask)
-                rotmats_t_2 = _rots_diffuse_mask(rotmats_t_2, rotmats_1, diffuse_mask)
             prot_traj.append((trans_t_2, rotmats_t_2))
             t_1 = t_2
 
         # We only integrated to min_t, so need to make a final step
         t_1 = ts[-1]
         trans_t_1, rotmats_t_1 = prot_traj[-1]
-        if self._trans_cfg.corrupt:
-            batch['trans_t'] = trans_t_1
-        else:
-            if trans_1 is None:
-                raise ValueError('Must provide trans_1 if not corrupting.')
-            batch['trans_t'] = trans_1
-        if self._rots_cfg.corrupt:
-            batch['rotmats_t'] = rotmats_t_1
-        else:
-            if rotmats_1 is None:
-                raise ValueError('Must provide rotmats_1 if not corrupting.')
-            batch['rotmats_t'] = rotmats_1
+        batch['trans_t'] = trans_t_1
+        batch['rotmats_t'] = rotmats_t_1
         batch['t'] = torch.ones((num_batch, 1), device=self._device) * t_1
         with torch.no_grad():
             model_out = model(batch)

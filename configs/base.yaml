@@ -6,17 +6,10 @@ data:
     cache_num_res: 0
     max_cache_size: 100_000
     min_num_res: 0
-    min_plddt_percent: null
-    max_coil_percent: null
     subset: null
     samples_per_eval_length: 5
     num_eval_lengths: 8
     min_eval_length: 500
-    spherical_motif_prob: 0.0
-    contiguous_motif_prob: 0.0
-    min_scaffold_size: 10
-    max_scaffold_percent: 0.9
-    min_motif_size: 5
     csv_path: ./preprocessed/metadata.csv
   loader:
     num_workers: 4
@@ -33,13 +26,10 @@ interpolant:
   provide_kappa: True
   hierarchical_t: False
   rots:
-    corrupt: True
     train_schedule: linear
     sample_schedule: exp
     exp_rate: 10
   trans:
-    corrupt: True
-    pre_align: False
     batch_ot: True
     train_schedule: linear
     sample_schedule: linear
@@ -107,10 +97,10 @@ experiment:
     aux_loss_weight: 1.0
     aux_loss_t_pass: 0.25
   wandb:
-    name: refactor_with_align
+    name: baseline
     project: se3-fm
     save_code: True
-    tags: ['baseline']
+    tags: []
   optimizer:
     lr: 0.0001
   trainer:

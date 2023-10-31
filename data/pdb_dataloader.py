@@ -6,7 +6,6 @@ import numpy as np
 import torch
 import pandas as pd
 import logging
-import random
 
 from data import utils as du
 from openfold.data import data_transforms
@@ -91,12 +90,6 @@ class PdbDataset(Dataset):
         self.raw_csv = pdb_csv
         pdb_csv = pdb_csv[pdb_csv.modeled_seq_len <= self.dataset_cfg.max_num_res]
         pdb_csv = pdb_csv[pdb_csv.modeled_seq_len >= self.dataset_cfg.min_num_res]
-        if self.dataset_cfg.min_plddt_percent is not None:
-            pdb_csv = pdb_csv[
-                pdb_csv.num_confident_plddt > self.dataset_cfg.min_plddt_percent]
-        if self.dataset_cfg.max_coil_percent is not None:
-            pdb_csv = pdb_csv[
-                pdb_csv.coil_percent < self.dataset_cfg.max_coil_percent]            
         if self.dataset_cfg.subset is not None:
             pdb_csv = pdb_csv.iloc[:self.dataset_cfg.subset]
         pdb_csv = pdb_csv.sort_values('modeled_seq_len', ascending=False)
@@ -155,7 +148,6 @@ class PdbDataset(Dataset):
         trans_1 = rigids_1.get_trans()
         res_idx = processed_feats['residue_index']
         return {
-            'res_plddt': processed_feats['b_factors'][:, 1],
             'aatype': chain_feats['aatype'],
             'res_idx': res_idx - np.min(res_idx) + 1,
             'rotmats_1': rotmats_1,
@@ -165,53 +157,6 @@ class PdbDataset(Dataset):
 
     def __len__(self):
         return len(self.csv)
-
-    def _spherical_motif(self, batch):
-        trans_1 = batch['trans_1']
-        dist2d = torch.linalg.norm(trans_1[:, None, :] - trans_1[None, :, :], dim=-1)
-        crop_seed = self._rng.integers(dist2d.shape[0])
-        seed_dists = dist2d[crop_seed]
-        max_scaffold_size = math.floor(
-            seed_dists.shape[0] * self._dataset_cfg.max_scaffold_percent)
-        scaffold_size = self._rng.integers(
-            low=self._dataset_cfg.min_scaffold_size,
-            high=max_scaffold_size
-        )
-        dist_cutoff = np.sort(seed_dists)[scaffold_size]
-        diff_mask = (seed_dists > dist_cutoff).int()
-        if torch.sum(diff_mask) < self._dataset_cfg.min_scaffold_size:
-            diff_mask = torch.ones_like(diff_mask)
-        return diff_mask
-    
-    def _contiguous_motif(self, batch):
-        trans_1 = batch['trans_1']
-        num_res = trans_1.shape[0]
-        max_motif_size = num_res - self._dataset_cfg.min_scaffold_size
-        min_motif_size = self._dataset_cfg.min_motif_size
-        motif_size = self._rng.integers(
-            low=min_motif_size+1,
-            high=max_motif_size
-        )
-        max_num_motifs = motif_size // min_motif_size
-        chunk_sizes = np.sort(
-            self._rng.integers(
-                low=min_motif_size,
-                high=motif_size,
-                size=(max_num_motifs,)
-            )
-        )
-        chunk_sizes = chunk_sizes[np.cumsum(chunk_sizes) < motif_size]
-        seed_residues = self._rng.integers(
-            low=0,
-            high=num_res,
-            size=(len(chunk_sizes),)
-        )
-        diff_mask = torch.ones(num_res)
-        for seed, chunk in zip(seed_residues, chunk_sizes):
-            diff_mask[seed:max(seed+chunk, num_res)] = 0
-        if torch.sum(diff_mask) < self._dataset_cfg.min_scaffold_size:
-            diff_mask = torch.ones_like(diff_mask)
-        return diff_mask.int()
 
     def __getitem__(self, idx):
         # Sample data example.
@@ -223,16 +168,6 @@ class PdbDataset(Dataset):
             chain_feats = self.read_cache(processed_file_path)
         else:
             chain_feats = self._process_csv_row(processed_file_path)
-        diff_mask = torch.ones_like(chain_feats['res_mask'])
-        if self.is_training:
-            motif_chance = self._rng.random()
-            spherical_motif_prob = self._dataset_cfg.spherical_motif_prob
-            contig_motif_prob = self._dataset_cfg.contiguous_motif_prob
-            if motif_chance < spherical_motif_prob:
-                diff_mask = self._spherical_motif(chain_feats)
-            elif motif_chance < (spherical_motif_prob + contig_motif_prob):
-                diff_mask = self._contiguous_motif(chain_feats)
-        chain_feats['diffuse_mask'] = diff_mask
         chain_feats['csv_idx'] = torch.ones(1, dtype=torch.long) * idx
         return chain_feats
 

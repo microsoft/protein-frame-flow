@@ -3,11 +3,10 @@ from torch import nn
 
 from models.utils import get_index_embedding, calc_distogram
 
-class EdgeFeatureNet(nn.Module):
+class EdgeEmbedder(nn.Module):
 
     def __init__(self, module_cfg):
-        #   c_s, c_p, relpos_k, template_type):
-        super(EdgeFeatureNet, self).__init__()
+        super(EdgeEmbedder, self).__init__()
         self._cfg = module_cfg
 
         self.c_s = self._cfg.c_s
