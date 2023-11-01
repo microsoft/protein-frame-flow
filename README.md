@@ -14,7 +14,7 @@ If you use the code then please keep it open source!
 }
 ```
 
-![frameflow-landing-page](h)
+![frameflow-landing-page](https://github.com/microsoft/flow-matching/blob/main/media/frame_flow_sampling.gif)
 
 
 ## Installation
