@@ -75,7 +75,7 @@ Following our paper, we train on SCOPe up to length 128.
 python -W ignore experiments/train_se3_flows.py
 ```
 
-## Tnference
+## Inference
 
 ### Download weights
 
