@@ -54,23 +54,18 @@ rm preprocessed_scope.tar.gz
 Your directory should now look like this 
 ```
 ├── analysis
+├── build
 ├── configs
 ├── data
 ├── experiments
+├── media
 ├── models
-├── notebooks
 ├── openfold
-│   ├── data
-│   │   └── tools
-│   ├── model
-│   ├── np
-│   │   └── relax
-│   ├── resources
-│   └── utils
-└── preprocessed
+├── preprocessed
+└── weights
 ```
 
-## Run training
+## Training
 
 By default the code uses 2 GPUs with DDP and runs for 200 epochs.
 We used 2 A6000 40GB GPUs on which training took ~2 days.
@@ -80,7 +75,20 @@ Following our paper, we train on SCOPe up to length 128.
 python -W ignore experiments/train_se3_flows.py
 ```
 
-## Run inference
+## Tnference
+
+### Download weights
+
+The published weights are hosted on dropbox: [link](https://www.dropbox.com/scl/fi/r8i0o057b0ms71ep5bf4m/published.ckpt?rlkey=pygthp5qjpwkn4glmai48mgy7&dl=0).
+Download the checkpoint and place in the weights subdirectory.
+
+```
+weights
+├── config.yaml
+└── published.ckpt
+```
+
+### Run inference
 
 Our inference script allows for DDP. By default we sample 10 sequences per
 length between 60 and 128. Samples are stored as PDB files as well as the
