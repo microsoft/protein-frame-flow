@@ -23,11 +23,11 @@ If you use the code then please keep it open source!
 # Conda environment with dependencies.
 conda env create -f fm.yml
 
-# Manually need to install torch-scatter.
-pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu117.html
-
 # Activate environment
 conda activate fm
+
+# Manually need to install torch-scatter.
+pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu117.html
 
 # Install local package.
 # Current directory should be flow-matching/
