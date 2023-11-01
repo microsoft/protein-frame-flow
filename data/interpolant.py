@@ -55,20 +55,8 @@ class Interpolant:
     def _corrupt_trans(self, trans_1, t, res_mask):
         trans_nm_0 = _centered_gaussian(*res_mask.shape, self._device)
         trans_0 = trans_nm_0 * du.NM_TO_ANG_SCALE
-        if self._trans_cfg.batch_ot:
-            trans_0 = self._batch_ot(trans_0, trans_1, res_mask)
-        if self._trans_cfg.train_schedule == 'linear':
-            trans_t = (1 - t[..., None]) * trans_0 + t[..., None] * trans_1
-        elif self._trans_cfg.train_schedule == 'vpsde':
-            # t (B,1)
-            # trans_0 (B, N, 3)
-            bmin = self._trans_cfg.vpsde_bmin
-            bmax = self._trans_cfg.vpsde_bmax
-            alpha_t = torch.exp(- bmin * (1-t) - 0.5 * (1-t)**2 * (bmax - bmin)) # (B,1)
-            trans_t = torch.sqrt(alpha_t[..., None]) * trans_1 + torch.sqrt(1 - alpha_t[..., None]) * trans_0
-        else:
-            raise ValueError(
-                f'Unknown trans schedule {self._trans_cfg.train_schedule}')
+        trans_0 = self._batch_ot(trans_0, trans_1, res_mask)
+        trans_t = (1 - t[..., None]) * trans_0 + t[..., None] * trans_1
         trans_t = _trans_diffuse_mask(trans_t, trans_1, res_mask)
         return trans_t * res_mask[..., None]
     
@@ -102,15 +90,7 @@ class Interpolant:
         noisy_rotmats = noisy_rotmats.reshape(num_batch, num_res, 3, 3)
         rotmats_0 = torch.einsum(
             "...ij,...jk->...ik", rotmats_1, noisy_rotmats)
-        
-        so3_schedule = self._rots_cfg.train_schedule
-        if so3_schedule == 'exp':
-            so3_t = 1 - torch.exp(-t*self._rots_cfg.exp_rate)
-        elif so3_schedule == 'linear':
-            so3_t = t
-        else:
-            raise ValueError(f'Invalid schedule: {so3_schedule}')
-        rotmats_t = so3_utils.geodesic_t(so3_t[..., None], rotmats_1, rotmats_0)
+        rotmats_t = so3_utils.geodesic_t(t[..., None], rotmats_1, rotmats_0)
         identity = torch.eye(3, device=self._device)
         rotmats_t = (
             rotmats_t * res_mask[..., None, None]
@@ -153,26 +133,7 @@ class Interpolant:
                 f'Invalid schedule: {self._rots_cfg.sample_schedule}')
 
     def _trans_euler_step(self, d_t, t, trans_1, trans_t):
-        # TODO: Add in temperature
-        # TODO: Add in SDE
-        assert d_t > 0
-
-        # TODO implement the ability to switch between schedules
-        assert self._trans_cfg.sample_schedule == self._trans_cfg.train_schedule
-
-        if self._trans_cfg.sample_schedule == 'linear':
-            trans_vf = (trans_1 - trans_t) / (1 - t)
-        elif self._trans_cfg.sample_schedule == 'vpsde':
-            bmin = self._trans_cfg.vpsde_bmin
-            bmax = self._trans_cfg.vpsde_bmax
-            bt = bmin + (bmax - bmin) * (1-t) # scalar
-            alpha_t = torch.exp(- bmin * (1-t) - 0.5 * (1-t)**2 * (bmax - bmin)) # scalar
-            trans_vf = 0.5 * bt * trans_t + \
-                0.5 * bt * (torch.sqrt(alpha_t) * trans_1 - trans_t) / (1 - alpha_t)
-        else:
-            raise ValueError(
-                f'Invalid sample schedule: {self._trans_cfg.sample_schedule}'
-            )
+        trans_vf = (trans_1 - trans_t) / (1 - t)
         return trans_t + trans_vf * d_t
 
     def _rots_euler_step(self, d_t, t, rotmats_1, rotmats_t):
@@ -183,11 +144,9 @@ class Interpolant:
         else:
             raise ValueError(
                 f'Unknown sample schedule {self._rots_cfg.sample_schedule}')
-        # TODO: Add in SDE.
         return so3_utils.geodesic_t(
             scaling * d_t, rotmats_1, rotmats_t)
 
-    @torch.no_grad()
     def sample(
             self,
             num_batch,

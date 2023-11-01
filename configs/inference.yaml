@@ -1,0 +1,48 @@
+# Configuration for inference on SE(3) diffusion experiments.
+defaults:
+  - base
+  - _self_
+
+inference:
+
+  # Use this to write with date-time stamp.
+  name: run_${now:%Y-%m-%d}_${now:%H-%M}
+  seed: 123
+  ckpt_path: weights/published.ckpt
+  output_dir: inference_outputs/
+
+  use_gpu: True
+  num_gpus: 2
+
+  interpolant:
+    min_t: 1e-2
+    rots:
+      corrupt: True
+      sample_schedule: exp
+      exp_rate: 10
+    trans:
+      corrupt: True
+      sample_schedule: linear
+    sampling:
+      num_timesteps: 100
+    self_condition: True
+
+  samples:
+
+    # Number of backbone samples per sequence length.
+    samples_per_length: 10
+
+    # Minimum sequence length to sample.
+    min_length: 60
+
+    # Maximum sequence length to sample.
+    max_length: 128
+
+    # gap between lengths to sample. i.e. this script will sample all lengths
+    # in range(min_length, max_length, length_step)
+    length_step: 1
+
+    # Subset of lengths to sample. If null, sample all targets.
+    length_subset: null
+
+    overwrite: False

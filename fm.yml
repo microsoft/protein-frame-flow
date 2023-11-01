@@ -1,9 +1,10 @@
-name: fm_os
+name: fm
 channels:
   - pytorch
   - nvidia
   - conda-forge
 dependencies:
+  - python=3.10.12
   - _libgcc_mutex=0.1=conda_forge
   - _openmp_mutex=4.5=2_gnu
   - anyio=3.7.1=pyhd8ed1ab_0
@@ -19,6 +20,7 @@ dependencies:
   - backports=1.0=pyhd8ed1ab_3
   - backports.functools_lru_cache=1.6.5=pyhd8ed1ab_0
   - beautifulsoup4=4.12.2=pyha770c72_0
+  - biotite==0.38.0
   - biopython=1.81=py310h1fa729e_0
   - bleach=6.0.0=pyhd8ed1ab_0
   - blosc=1.21.4=h0f2a231_0
@@ -279,7 +281,6 @@ dependencies:
       - dm-tree==0.1.8
       - docker-pycreds==0.4.0
       - einops==0.6.1
-      - fair-esm==2.0.0
       - fastapi==0.101.1
       - filelock==3.12.2
       - frozenlist==1.4.0

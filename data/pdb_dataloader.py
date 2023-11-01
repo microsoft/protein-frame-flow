@@ -71,7 +71,6 @@ class PdbDataset(Dataset):
         self._is_training = is_training
         self._dataset_cfg = dataset_cfg
         self._init_metadata()
-        self._cache = {}
         self._rng = np.random.default_rng(seed=self._dataset_cfg.seed)
 
     @property
@@ -116,14 +115,6 @@ class PdbDataset(Dataset):
             self._log.info(
                 f'Validation: {len(self.csv)} examples with lengths {eval_lengths}')
 
-    def read_cache(self, path):
-        if path in self._cache:
-            return self._cache[path]
-        processed_row = self._process_csv_row(path)
-        if len(self._cache) < self._dataset_cfg.max_cache_size:
-            self._cache[path] = processed_row
-        return processed_row
-
     def _process_csv_row(self, processed_file_path):
         processed_feats = du.read_pkl(processed_file_path)
         processed_feats = du.parse_chain_feats(processed_feats)
@@ -163,11 +154,7 @@ class PdbDataset(Dataset):
         example_idx = idx
         csv_row = self.csv.iloc[example_idx]
         processed_file_path = csv_row['processed_path']
-        seq_len = csv_row['modeled_seq_len']
-        if seq_len > self._dataset_cfg.cache_num_res:
-            chain_feats = self.read_cache(processed_file_path)
-        else:
-            chain_feats = self._process_csv_row(processed_file_path)
+        chain_feats = self._process_csv_row(processed_file_path)
         chain_feats['csv_idx'] = torch.ones(1, dtype=torch.long) * idx
         return chain_feats
 
@@ -197,12 +184,9 @@ class LengthBatcher:
 
         self._sampler_cfg = sampler_cfg
         self._data_csv = metadata_csv
-        if sampler_cfg.num_batches is None:
-            # Each replica needs the same number of batches. We set the number
-            # of batches to arbitrarily be the number of examples per replica.
-            self._num_batches = math.ceil(len(self._data_csv) / self.num_replicas)
-        else:
-            self._num_batches = sampler_cfg.num_batches
+        # Each replica needs the same number of batches. We set the number
+        # of batches to arbitrarily be the number of examples per replica.
+        self._num_batches = math.ceil(len(self._data_csv) / self.num_replicas)
         self._data_csv['index'] = list(range(len(self._data_csv)))
         self.seed = seed
         self.shuffle = shuffle
@@ -237,11 +221,7 @@ class LengthBatcher:
             for i in range(num_batches):
                 batch_df = len_df.iloc[i*max_batch_size:(i+1)*max_batch_size]
                 batch_indices = batch_df['index'].tolist()
-                if self._sampler_cfg.use_batch_repeats:
-                    batch_repeats = math.floor(max_batch_size / len(batch_indices))
-                    sample_order.append(batch_indices * batch_repeats)
-                else:
-                    sample_order.append(batch_indices)
+                sample_order.append(batch_indices)
         
         # Remove any length bias.
         new_order = torch.randperm(len(sample_order), generator=rng).numpy().tolist()

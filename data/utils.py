@@ -199,6 +199,7 @@ def read_pkl(read_path: str, verbose=True, use_torch=False, map_location=None):
                 print(f'Failed to read {read_path}. First error: {e}\n Second error: {e2}')
             raise(e)
 
+
 def chain_str_to_int(chain_str: str):
     chain_int = 0
     if len(chain_str) == 1:
@@ -206,6 +207,7 @@ def chain_str_to_int(chain_str: str):
     for i, chain_char in enumerate(chain_str):
         chain_int += CHAIN_TO_INT[chain_char] + (i * len(ALPHANUMERIC))
     return chain_int
+
 
 def parse_chain_feats(chain_feats, scale_factor=1.):
     ca_idx = residue_constants.atom_order['CA']
@@ -217,6 +219,7 @@ def parse_chain_feats(chain_feats, scale_factor=1.):
     chain_feats['atom_positions'] = scaled_pos * chain_feats['atom_mask'][..., None]
     chain_feats['bb_positions'] = chain_feats['atom_positions'][:, ca_idx]
     return chain_feats
+
 
 def concat_np_features(
         np_dicts: List[Dict[str, np.ndarray]], add_batch_dim: bool):

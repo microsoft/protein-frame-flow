@@ -16,12 +16,13 @@ from data.interpolant import Interpolant
 from data import utils as du
 from data import all_atom
 from data import so3_utils
+from experiments import utils as eu
 from pytorch_lightning.loggers.wandb import WandbLogger
 
 
 class FlowModule(LightningModule):
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, folding_cfg=None):
         super().__init__()
         self._print_logger = logging.getLogger(__name__)
         self._exp_cfg = cfg.experiment
@@ -41,8 +42,6 @@ class FlowModule(LightningModule):
         self.validation_epoch_metrics = []
         self.validation_epoch_samples = []
         self.save_hyperparameters()
-
-        self._folding_model = None
         
     def on_train_start(self):
         self._epoch_start_time = time.time()
@@ -277,4 +276,34 @@ class FlowModule(LightningModule):
         return torch.optim.AdamW(
             params=self.model.parameters(),
             **self._exp_cfg.optimizer
+        )
+
+
+    def predict_step(self, batch, batch_idx):
+        device = f'cuda:{torch.cuda.current_device()}'
+        interpolant = Interpolant(self._infer_cfg.interpolant) 
+        interpolant.set_device(device)
+
+        sample_length = batch['num_res'].item()
+        diffuse_mask = torch.ones(1, sample_length)
+        sample_id = batch['sample_id'].item()
+        sample_dir = os.path.join(
+            self._output_dir, f'length_{sample_length}', f'sample_{sample_id}')
+        top_sample_csv_path = os.path.join(sample_dir, 'top_sample.csv')
+        if os.path.exists(top_sample_csv_path):
+            self._print_logger.info(
+                f'Skipping instance {sample_id} length {sample_length}')
+            return
+        atom37_traj, model_traj, _ = interpolant.sample(
+            1, sample_length, self.model
+        )
+
+        os.makedirs(sample_dir, exist_ok=True)
+        bb_traj = du.to_numpy(torch.concat(atom37_traj, dim=0))
+        _ = eu.save_traj(
+            bb_traj[-1],
+            bb_traj,
+            np.flip(du.to_numpy(torch.concat(model_traj, dim=0)), axis=0),
+            du.to_numpy(diffuse_mask)[0],
+            output_dir=sample_dir,
         )

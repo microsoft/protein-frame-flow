@@ -1,10 +1,27 @@
-# Protein flower
+# Fast protein backbone generation with SE(3) flow matching
+
+
+Source code for https://arxiv.org/abs/2310.05297.
+
+If you use this work (or code) then please cite.
+If you use the code then please keep it open source!
+```
+@article{yim2023fast,
+  title={Fast protein backbone generation with SE (3) flow matching},
+  author={Yim, Jason and Campbell, Andrew and Foong, Andrew YK and Gastegger, Michael and Jim{\'e}nez-Luna, Jos{\'e} and Lewis, Sarah and Satorras, Victor Garcia and Veeling, Bastiaan S and Barzilay, Regina and Jaakkola, Tommi and others},
+  journal={arXiv preprint arXiv:2310.05297},
+  year={2023}
+}
+```
+
+![frameflow-landing-page](h)
+
 
 ## Installation
 
 ```bash
 # Conda environment with dependencies.
-conda env update -f fm.yml
+conda env create -f fm.yml
 
 # Manually need to install torch-scatter.
 pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu117.html
@@ -24,7 +41,10 @@ Authorize Wandb [here](https://wandb.ai/authorize).
 
 ## Data
 
-Download preprocessed SCOPe dataset (~280MB) hosted on dropbox: [link](https://www.dropbox.com/scl/fi/b8l0bqowi96hl21ycsmht/preprocessed_scope.tar.gz?rlkey=0h7uulr7ioyvzlap6a0rwpx0n&dl=0)
+Download preprocessed SCOPe dataset (~280MB) hosted on dropbox: [link](https://www.dropbox.com/scl/fi/b8l0bqowi96hl21ycsmht/preprocessed_scope.tar.gz?rlkey=0h7uulr7ioyvzlap6a0rwpx0n&dl=0).
+
+Other datasets are also possible to train on using the `data/process_pdb_files.py` script.
+However, we currently do not support other datasets.
 
 ```bash
 # Expand tar file.
@@ -52,27 +72,24 @@ Your directory should now look like this
 
 ## Run training
 
+By default the code uses 2 GPUs with DDP and runs for 200 epochs.
+We used 2 A6000 40GB GPUs on which training took ~2 days.
+Following our paper, we train on SCOPe up to length 128.
 
 ```bash
-# Train on SCOPe up to length 128
 python -W ignore experiments/train_se3_flows.py
 ```
 
 ## Run inference
 
+Our inference script allows for DDP. By default we sample 10 sequences per
+length between 60 and 128. Samples are stored as PDB files as well as the
+trajectories. We do not include evaluation code using ProteinMPNN and ESMFold
+but this should be easy to set-up if one looks at the [FrameDiff codebase](https://github.com/jasonkyuyim/se3_diffusion).
+
 ```bash
-# Sample 10 sequences per length between 60 and 128
 python -W ignore experiments/inference_se3_flows.py
 ```
-
-## To-do
-
-- [x] Train on SwissProt
-- [x] Add DDP inference
-- [ ] Add SDE interpolant
-- [ ] Add translation schedule variant
-- [ ] Implement inpainting training
-- [ ] Implement inpainting inference/benchmark
 
 # Contributing
 This project welcomes contributions and suggestions. Most contributions require you to agree to a Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us the rights to use your contribution. For details, visit https://cla.opensource.microsoft.com.

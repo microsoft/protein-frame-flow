@@ -2,12 +2,9 @@ import numpy as np
 import os
 import re
 from data import protein
-from data import residue_constants
-from scipy.spatial.transform import Rotation
 from openfold.utils import rigid_utils
 
 
-CA_IDX = residue_constants.atom_order['CA']
 Rigid = rigid_utils.Rigid
 
 
@@ -75,10 +72,3 @@ def write_prot_to_pdb(
             raise ValueError(f'Invalid positions shape {prot_pos.shape}')
         f.write('END')
     return save_path
-
-
-def rigids_to_se3_vec(frame, scale_factor=1.0):
-    trans = frame[:, 4:] * scale_factor
-    rotvec = Rotation.from_quat(frame[:, :4]).as_rotvec()
-    se3_vec = np.concatenate([rotvec, trans], axis=-1)
-    return se3_vec

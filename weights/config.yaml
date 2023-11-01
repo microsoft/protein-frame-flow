@@ -1,0 +1,117 @@
+data:
+  dataset:
+    seed: 123
+    max_num_res: 128
+    cache_num_res: 0
+    max_cache_size: 100000
+    min_num_res: 0
+    subset: null
+    samples_per_eval_length: 5
+    num_eval_lengths: 8
+    min_eval_length: 500
+    csv_path: ./preprocessed/metadata.csv
+  loader:
+    num_workers: 4
+    prefetch_factor: 10
+  sampler:
+    max_batch_size: 100
+    max_num_res_squared: 500000
+    use_batch_repeats: false
+    num_batches: null
+interpolant:
+  min_t: 0.01
+  separate_t: true
+  provide_kappa: true
+  hierarchical_t: false
+  rots:
+    train_schedule: linear
+    sample_schedule: exp
+    exp_rate: 10
+  trans:
+    batch_ot: true
+    train_schedule: linear
+    sample_schedule: linear
+    sample_temp: 1.0
+    vpsde_bmin: 0.1
+    vpsde_bmax: 20.0
+  sampling:
+    num_timesteps: 100
+    do_sde: false
+  self_condition: ${model.edge_features.self_condition}
+model:
+  node_embed_size: 256
+  edge_embed_size: 128
+  symmetric: false
+  node_features:
+    c_s: ${model.node_embed_size}
+    c_pos_emb: 128
+    c_timestep_emb: 128
+    separate_t: ${interpolant.separate_t}
+    embed_diffuse_mask: false
+    max_num_res: 2000
+    timestep_int: 1000
+  edge_features:
+    single_bias_transition_n: 2
+    c_s: ${model.node_embed_size}
+    c_p: ${model.edge_embed_size}
+    relpos_k: 64
+    use_rbf: true
+    num_rbf: 32
+    feat_dim: 64
+    num_bins: 22
+    self_condition: true
+  ipa:
+    c_s: ${model.node_embed_size}
+    c_z: ${model.edge_embed_size}
+    c_hidden: 128
+    no_heads: 8
+    no_qk_points: 8
+    no_v_points: 12
+    seq_tfmr_num_heads: 4
+    seq_tfmr_num_layers: 2
+    num_blocks: 6
+experiment:
+  debug: false
+  seed: 123
+  num_devices: 2
+  warm_start: null
+  warm_start_cfg_override: true
+  use_swa: false
+  batch_ot:
+    enabled: true
+    cost: kabsch
+    noise_per_sample: 1
+    permute: false
+  training:
+    min_plddt_mask: null
+    loss: se3_vf_loss
+    bb_atom_scale: 0.1
+    trans_scale: 0.1
+    translation_loss_weight: 2.0
+    t_normalize_clip: 0.9
+    rotation_loss_weights: 1.0
+    aux_loss_weight: 1.0
+    aux_loss_t_pass: 0.25
+  wandb:
+    name: baseline
+    project: se3-fm
+    save_code: true
+    tags: []
+  optimizer:
+    lr: 0.0001
+  trainer:
+    overfit_batches: 0
+    min_epochs: 1
+    max_epochs: 1000
+    accelerator: gpu
+    log_every_n_steps: 1
+    deterministic: false
+    strategy: ddp
+    check_val_every_n_epoch: 2
+    accumulate_grad_batches: 2
+  checkpointer:
+    dirpath: ckpt/${experiment.wandb.project}/${experiment.wandb.name}/${now:%Y-%m-%d}_${now:%H-%M-%S}
+    save_last: true
+    save_top_k: 3
+    monitor: valid/non_coil_percent
+    mode: max

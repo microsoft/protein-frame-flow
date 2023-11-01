@@ -54,60 +54,6 @@ def get_time_embedding(timesteps, embedding_dim, max_positions=2000):
     return emb
 
 
-def sinusoidal_encoding(v, N, D):
-	"""Taken from GENIE.
-	
-	Args:
-
-	"""
-	# v: [*]
-
-	# [D]
-	k = torch.arange(1, D+1).to(v.device)
-
-	# [*, D]
-	sin_div_term = N ** (2 * k / D)
-	sin_div_term = sin_div_term.view(*((1, ) * len(v.shape) + (len(sin_div_term), )))
-	sin_enc = torch.sin(v.unsqueeze(-1) * math.pi / sin_div_term)
-
-	# [*, D]
-	cos_div_term = N ** (2 * (k - 1) / D)
-	cos_div_term = cos_div_term.view(*((1, ) * len(v.shape) + (len(cos_div_term), )))
-	cos_enc = torch.cos(v.unsqueeze(-1) * math.pi / cos_div_term)
-
-	# [*, D]
-	enc = torch.zeros_like(sin_enc).to(v.device)
-	enc[..., 0::2] = cos_enc[..., 0::2]
-	enc[..., 1::2] = sin_enc[..., 1::2]
-
-	return enc.to(v.dtype)
-
-
-def distance(p, eps=1e-10):
-    # [*, 2, 3]
-    return (eps + torch.sum((p[..., 0, :] - p[..., 1, :]) ** 2, dim=-1)) ** 0.5
-
-
-def dist_from_ca(trans):
-
-	# [b, n_res, n_res, 1]
-	d = distance(torch.stack([
-		trans.unsqueeze(2).repeat(1, 1, trans.shape[1], 1), # Ca_1
-		trans.unsqueeze(1).repeat(1, trans.shape[1], 1, 1), # Ca_2
-	], dim=-2)).unsqueeze(-1)
-
-	return d
-
-
-def calc_rbf(ca_dists, num_rbf, D_min=1e-3, D_max=22.):
-    # Distance radial basis function
-    device = ca_dists.device
-    D_mu = torch.linspace(D_min, D_max, num_rbf).to(device)
-    D_mu = D_mu.view([1,1,1,-1])
-    D_sigma = (D_max - D_min) / num_rbf
-    return torch.exp(-((ca_dists - D_mu) / D_sigma)**2)
-
-
 def t_stratified_loss(batch_t, batch_loss, num_bins=4, loss_name=None):
     """Stratify loss by binning t."""
     batch_t = du.to_numpy(batch_t)

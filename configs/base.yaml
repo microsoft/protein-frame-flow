@@ -4,7 +4,6 @@ data:
     seed: 123
     max_num_res: 128
     cache_num_res: 0
-    max_cache_size: 100_000
     min_num_res: 0
     subset: null
     samples_per_eval_length: 5
@@ -17,28 +16,18 @@ data:
   sampler:
     max_batch_size: 100
     max_num_res_squared: 500_000
-    use_batch_repeats: False
-    num_batches: null
 
 interpolant:
   min_t: 1e-2
-  separate_t: True
-  provide_kappa: True
-  hierarchical_t: False
   rots:
     train_schedule: linear
     sample_schedule: exp
     exp_rate: 10
   trans:
-    batch_ot: True
     train_schedule: linear
     sample_schedule: linear
-    sample_temp: 1.0
-    vpsde_bmin: 0.1
-    vpsde_bmax: 20.0
   sampling:
     num_timesteps: 100
-    do_sde: False
   self_condition: ${model.edge_features.self_condition}
 
 model:
@@ -49,7 +38,6 @@ model:
     c_s: ${model.node_embed_size}
     c_pos_emb: 128
     c_timestep_emb: 128
-    separate_t: ${interpolant.separate_t}
     embed_diffuse_mask: False
     max_num_res: 2000
     timestep_int: 1000
@@ -106,7 +94,7 @@ experiment:
   trainer:
     overfit_batches: 0
     min_epochs: 1 # prevents early stopping
-    max_epochs: 1000
+    max_epochs: 200
     accelerator: gpu
     log_every_n_steps: 1
     deterministic: False

@@ -4,7 +4,6 @@ import numpy as np
 from openfold.np import residue_constants
 from tmtools import tm_align
 
-CA_IDX = residue_constants.atom_order['CA']
 
 def calc_tm_score(pos_1, pos_2, seq_1, seq_2):
     tm_results = tm_align(pos_1, pos_2, seq_1, seq_2)

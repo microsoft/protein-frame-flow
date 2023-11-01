@@ -26,13 +26,9 @@ class EdgeEmbedder(nn.Module):
             nn.LayerNorm(self.c_p),
         )
 
-    def embed_relpos(self, r):
-        # AlphaFold 2 Algorithm 4 & 5
-        # Based on OpenFold utils/tensor_utils.py
-        # Input: [b, n_res]
-        # [b, n_res, n_res]
-        d = r[:, :, None] - r[:, None, :]
-        pos_emb = get_index_embedding(d, self._cfg.feat_dim, max_len=2056)
+    def embed_relpos(self, pos):
+        rel_pos = pos[:, :, None] - pos[:, None, :]
+        pos_emb = get_index_embedding(rel_pos, self._cfg.feat_dim, max_len=2056)
         return self.linear_relpos(pos_emb)
 
     def _cross_concat(self, feats_1d, num_batch, num_res):
@@ -42,17 +38,12 @@ class EdgeEmbedder(nn.Module):
         ], dim=-1).float().reshape([num_batch, num_res, num_res, -1])
 
     def forward(self, s, t, sc_t, p_mask):
-        # Input: [b, n_res, c_s]
         num_batch, num_res, _ = s.shape
-
-        # [b, n_res, c_p]
         p_i = self.linear_s_p(s)
         cross_node_feats = self._cross_concat(p_i, num_batch, num_res)
-
-        # [b, n_res]
-        r = torch.arange(
+        pos = torch.arange(
             num_res, device=s.device).unsqueeze(0).repeat(num_batch, 1)
-        relpos_feats = self.embed_relpos(r)
+        relpos_feats = self.embed_relpos(pos)
 
         dist_feats = calc_distogram(
             t, min_bin=1e-3, max_bin=20.0, num_bins=self._cfg.num_bins)
