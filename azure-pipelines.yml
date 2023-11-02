@@ -18,5 +18,10 @@ steps:
     # Install local package.
     # Current directory should be flow-matching/
     pip install -e .
+    
+    # help out component governance by creating a requirements.txt
+    pip install pipreqs
+    python -mpipreqs.pipreqs
+
   displayName: 'Install dependencies'
 - task: ComponentGovernanceComponentDetection@0
