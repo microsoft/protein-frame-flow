@@ -1,5 +1,15 @@
+# This pipeline's primary use is to run component governance
+# ensuring that dependencies are free of known vulnerabilities
+# and licensing issues.
+# The component governance component is configured to notify
+# a set of core team members in case it discovers a problem.
+
 trigger:
 - main
+
+schedules:
+- cron: '0 0 * * *'
+  displayName: Daily midnight build
 
 pool:
   vmImage: ubuntu-latest
