@@ -19,9 +19,10 @@ steps:
     # Current directory should be flow-matching/
     pip install -e .
     
-    # help out component governance by creating a requirements.txt
+    # help out component governance by creating a requirements.txt and environment.yml
     pip install pipreqs
     python -mpipreqs.pipreqs
+    conda env export | grep -v "^prefix: " > environment.yml
 
-  displayName: 'Install dependencies'
+  displayName: 'Install and record dependencies'
 - task: ComponentGovernanceComponentDetection@0
