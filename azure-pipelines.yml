@@ -11,14 +11,14 @@ pool:
 
 steps:
 - script: |
-    conda env update -f fm.yml
- 
-    # Manually need to install torch-scatter.
-    pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu117.html
- 
+    conda env create -f fm.yml 
+
     # Activate environment
     conda activate fm_os
- 
+     
+    # Manually need to install torch-scatter.
+    pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu117.html
+
     # Install local package.
     # Current directory should be flow-matching/
     pip install -e .
