@@ -7,6 +7,7 @@ pool:
 steps:
 - task: ComponentGovernanceComponentDetection@0
 - script: |
+    eval "$(conda shell.bash hook)"  || exit 1
     conda env create -f fm.yml 
 
     # Activate environment
