@@ -5,6 +5,7 @@ pool:
   vmImage: ubuntu-latest
 
 steps:
+- task: ComponentGovernanceComponentDetection@0
 - script: |
     conda env create -f fm.yml 
 
