@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json.schemastore.org/component-detection-manifest.json",
+    "version": 1,
+    "registrations":[
+        {
+            "component": { 
+             "type": "git", 
+             "git": { 
+               "repositoryUrl": "https://github.com/aqlaboratory/openfold", 
+               "commitHash": "2134cc09b3994b6280e6e3c569dd7d761e4da7a0" 
+               }
+             }
+          }
+    ]
+}

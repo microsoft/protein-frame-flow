@@ -1,0 +1,41 @@
+# This pipeline's primary use is to run component governance
+# ensuring that dependencies are free of known vulnerabilities
+# and licensing issues.
+# The component governance component is configured to notify
+# a set of core team members in case it discovers a problem.
+
+trigger:
+- main
+
+# schedules:
+# - cron: '0 0 * * *'
+#   displayName: Daily midnight build
+#   branches:
+#     include:
+#      - main
+    
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+- script: |
+    eval "$(conda shell.bash hook)"  || exit 1
+    conda env create -f fm.yml 
+
+    # Activate environment
+    conda activate fm || exit 1
+     
+    # Manually need to install torch-scatter.
+    pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu117.html
+
+    # Install local package.
+    # Current directory should be flow-matching/
+    pip install -e .
+    
+    # help out component governance by creating a requirements.txt and environment.yml
+    pip install pipreqs
+    python -mpipreqs.pipreqs
+    conda env export | grep -v "^prefix: " > environment.yml
+
+  displayName: 'Install and record dependencies'
+- task: ComponentGovernanceComponentDetection@0
