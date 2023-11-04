@@ -3,8 +3,7 @@
 
 Source code for https://arxiv.org/abs/2310.05297.
 
-If you use this work (or code) then please cite.
-If you use the code then please keep it open source!
+If you use this work (or code) then please cite the paper.
 ```
 @article{yim2023fast,
   title={Fast protein backbone generation with SE (3) flow matching},
