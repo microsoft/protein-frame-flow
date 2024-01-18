@@ -98,6 +98,20 @@ but this should be easy to set-up if one looks at the [FrameDiff codebase](https
 python -W ignore experiments/inference_se3_flows.py
 ```
 
+# Responsible AI FAQ
+- What is FrameFlow?
+  - FrameFlow is a deep neural network that models 3D protein structures.
+- What can FrameFlow do?
+  - By sampling from FrameFlow, you can obtain a description of the positions and orientations of the backbone atoms in a protein.
+- What is/are FrameFlow’s intended use(s)?
+  - FrameFlow is intended for research purposes only, for the machine learning for structural biology community.
+- How was FrameFlow evaluated? What metrics are used to measure performance?
+  - FrameFlow was evaluated on how novel, designable and diverse the protein structures sampled from FrameFlow were. 
+- What are the limitations of FrameFlow? How can users minimize the impact of FrameFlow’s limitations when using the system?
+  - FrameFlow has not been tested by real-world experiments to see if the proteins it samples are actually designable. FrameFlow should be used for research purposes only.
+- What operational factors and settings allow for effective and responsible use of FrameFlow?
+  - FrameFlow should be used for research purposes only.
+
 # Contributing
 This project welcomes contributions and suggestions. Most contributions require you to agree to a Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us the rights to use your contribution. For details, visit https://cla.opensource.microsoft.com.
 
