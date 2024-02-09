@@ -13,7 +13,7 @@ If you use this work (or code) then please cite the paper.
 }
 ```
 
-![frameflow-landing-page](https://github.com/microsoft/flow-matching/blob/main/media/frame_flow_sampling.gif)
+![frameflow-landing-page](https://github.com/microsoft/protein-frame-flow/blob/main/media/frame_flow_sampling.gif)
 
 
 ## Installation
@@ -29,7 +29,7 @@ conda activate fm
 pip install torch-scatter -f https://data.pyg.org/whl/torch-2.0.0+cu117.html
 
 # Install local package.
-# Current directory should be flow-matching/
+# Current directory should be protein-frame-flow/
 pip install -e .
 ```
 
