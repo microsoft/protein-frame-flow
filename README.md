@@ -1,7 +1,8 @@
 # Fast protein backbone generation with SE(3) flow matching
 
-
-Source code for https://arxiv.org/abs/2310.05297.
+> [!NOTE]  
+> This code is the source code for https://arxiv.org/abs/2310.05297. 
+> See the main branch for the improved FrameFlow trained on PDB and for motif-scaffolding.
 
 If you use this work (or code) then please cite the paper.
 ```
