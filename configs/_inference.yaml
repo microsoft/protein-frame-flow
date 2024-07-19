@@ -33,6 +33,27 @@ inference:
       num_timesteps: 100
     self_condition: True
 
+    twisting:
+      use: False
+      t_min: 0.2
+      scale: 1.
+      # scale_w_t: ot
+      r_t: 1
+      potential_trans: True
+      potential_rot: True
+      update_trans: True
+      update_rot: True
+      max_rot_grad_norm: 1000
+      align: True
+      motif_loc: False
+      max_offsets: 1000
+      # num_rots: 100
+      num_rots: 1
+      # scale_rots: math.inf
+      scale_rots: 0.
+      # scale_rots: 0.1
+      obs_noise: 0.
+
   samples:
 
     # Number of backbone samples per sequence length.

@@ -1,0 +1,13 @@
+# Motif-scaffold sampling
+defaults:
+  - _inference
+  - _self_
+
+inference:
+  task: scaffolding
+  ckpt_path: weights/pdb/published.ckpt
+
+  inference:
+    interpolant:
+      twisting:
+        use: True

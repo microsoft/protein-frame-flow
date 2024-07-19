@@ -8,6 +8,7 @@ data:
   # Available tasks: hallucination, inpainting
   task: hallucination
 
+  # Available tasks: pdb, scope
   dataset: pdb
 
   loader:

@@ -1,7 +1,6 @@
 """Protein data loader."""
 import math
 import torch
-import torch
 import logging
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
