@@ -37,7 +37,7 @@ note={}
 ```
 
 > [!NOTE]  
-> See the [legacy branch](https://github.com/microsoft/protein-frame-flow/tree/legacy) for the old version of this repo form he workshop paper [Fast protein backbone generation with SE (3) flow matching](https://arxiv.org/abs/2310.05297).
+> See the [legacy branch](https://github.com/microsoft/protein-frame-flow/tree/legacy) for the old version of this repo from the workshop paper [Fast protein backbone generation with SE (3) flow matching](https://arxiv.org/abs/2310.05297).
 
 ## Future updates
 
