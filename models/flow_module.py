@@ -17,6 +17,7 @@ from data.interpolant import Interpolant
 from data import utils as du
 from data import all_atom
 from data import so3_utils
+from data import residue_constants
 from experiments import utils as eu
 from pytorch_lightning.loggers.wandb import WandbLogger
 
@@ -228,12 +229,12 @@ class FlowModule(LightningModule):
                 self.validation_epoch_samples.append(
                     [saved_path, self.global_step, wandb.Molecule(saved_path)]
                 )
-            try:
-                mdtraj_metrics = metrics.calc_mdtraj_metrics(saved_path)
-                ca_ca_metrics = metrics.calc_ca_ca_metrics(final_pos[:, metrics.CA_IDX])
-                batch_metrics.append((mdtraj_metrics | ca_ca_metrics))
-            except Exception:
-                continue
+
+            mdtraj_metrics = metrics.calc_mdtraj_metrics(saved_path)
+            ca_idx = residue_constants.atom_order['CA']
+            ca_ca_metrics = metrics.calc_ca_ca_metrics(final_pos[:, ca_idx])
+            batch_metrics.append((mdtraj_metrics | ca_ca_metrics))
+
         batch_metrics = pd.DataFrame(batch_metrics)
         self.validation_epoch_metrics.append(batch_metrics)
         
