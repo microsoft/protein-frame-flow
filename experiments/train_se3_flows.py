@@ -1,7 +1,5 @@
 import os
-import GPUtil
 import torch
-
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
@@ -10,8 +8,8 @@ from pytorch_lightning import LightningDataModule, LightningModule, Trainer
 from pytorch_lightning.loggers.wandb import WandbLogger
 from pytorch_lightning.trainer import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
-
-from data.pdb_dataloader import PdbDataModule
+from data.datasets import ScopeDataset, PdbDataset
+from data.protein_dataloader import ProteinData
 from models.flow_module import FlowModule
 from experiments import utils as eu
 import wandb
@@ -26,15 +24,33 @@ class Experiment:
         self._cfg = cfg
         self._data_cfg = cfg.data
         self._exp_cfg = cfg.experiment
-        self._datamodule: LightningDataModule = PdbDataModule(self._data_cfg)
-        self._model: LightningModule = FlowModule(self._cfg)
+        self._task = self._data_cfg.task
+        self._setup_dataset()
+        self._datamodule: LightningDataModule = ProteinData(
+            data_cfg=self._data_cfg,
+            train_dataset=self._train_dataset,
+            valid_dataset=self._valid_dataset
+        )
+        self._train_device_ids = eu.get_available_device(self._exp_cfg.num_devices)
+        log.info(f"Training with devices: {self._train_device_ids}")
+        self._module: LightningModule = FlowModule(self._cfg)
+
+    def _setup_dataset(self):
+        if self._data_cfg.dataset == 'scope':
+            self._train_dataset, self._valid_dataset = eu.dataset_creation(
+                ScopeDataset, self._cfg.scope_dataset, self._task)
+        elif self._data_cfg.dataset == 'pdb':
+            self._train_dataset, self._valid_dataset = eu.dataset_creation(
+                PdbDataset, self._cfg.pdb_dataset, self._task)
+        else:
+            raise ValueError(f'Unrecognized dataset {self._data_cfg.dataset}') 
         
     def train(self):
         callbacks = []
         if self._exp_cfg.debug:
             log.info("Debug mode.")
             logger = None
-            self._exp_cfg.num_devices = 1
+            self._train_device_ids = [self._train_device_ids[0]]
             self._data_cfg.loader.num_workers = 0
         else:
             logger = WandbLogger(
@@ -49,17 +65,16 @@ class Experiment:
             # Model checkpoints
             callbacks.append(ModelCheckpoint(**self._exp_cfg.checkpointer))
             
-            # Save config
-            cfg_path = os.path.join(ckpt_dir, 'config.yaml')
-            with open(cfg_path, 'w') as f:
-                OmegaConf.save(config=self._cfg, f=f.name)
-            cfg_dict = OmegaConf.to_container(self._cfg, resolve=True)
-            flat_cfg = dict(eu.flatten_dict(cfg_dict))
-            if isinstance(logger.experiment.config, wandb.sdk.wandb_config.Config):
-                logger.experiment.config.update(flat_cfg)
-
-        devices = GPUtil.getAvailable(order='memory', limit = 8)[:self._exp_cfg.num_devices]
-        log.info(f"Using devices: {devices}")
+            # Save config only for main process.
+            local_rank = os.environ.get('LOCAL_RANK', 0)
+            if local_rank == 0:
+                cfg_path = os.path.join(ckpt_dir, 'config.yaml')
+                with open(cfg_path, 'w') as f:
+                    OmegaConf.save(config=self._cfg, f=f.name)
+                cfg_dict = OmegaConf.to_container(self._cfg, resolve=True)
+                flat_cfg = dict(eu.flatten_dict(cfg_dict))
+                if isinstance(logger.experiment.config, wandb.sdk.wandb_config.Config):
+                    logger.experiment.config.update(flat_cfg)
         trainer = Trainer(
             **self._exp_cfg.trainer,
             callbacks=callbacks,
@@ -67,10 +82,10 @@ class Experiment:
             use_distributed_sampler=False,
             enable_progress_bar=True,
             enable_model_summary=True,
-            devices=devices,
+            devices=self._train_device_ids,
         )
         trainer.fit(
-            model=self._model,
+            model=self._module,
             datamodule=self._datamodule,
             ckpt_path=self._exp_cfg.warm_start
         )

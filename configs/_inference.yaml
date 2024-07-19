@@ -1,0 +1,87 @@
+# Configuration for inference on SE(3) diffusion experiments.
+defaults:
+  - base
+  - _self_
+
+inference:
+
+  predict_dir: ./inference_outputs/
+  inference_subdir: run_${now:%Y-%m-%d}_${now:%H-%M-%S}
+
+  # Use this to write with date-time stamp.
+  name: run_${now:%Y-%m-%d}_${now:%H-%M}
+  seed: 123
+  task: null
+  output_dir: inference_outputs/
+
+  # Choose checkpoint path
+  ckpt_path: null
+
+  use_gpu: True
+  num_gpus: 2
+
+  interpolant:
+    min_t: 1e-2
+    rots:
+      corrupt: True
+      sample_schedule: exp
+      exp_rate: 10
+    trans:
+      corrupt: True
+      sample_schedule: linear
+    sampling:
+      num_timesteps: 100
+    self_condition: True
+
+    twisting:
+      use: False
+      t_min: 0.2
+      scale: 1.
+      # scale_w_t: ot
+      r_t: 1
+      potential_trans: True
+      potential_rot: True
+      update_trans: True
+      update_rot: True
+      max_rot_grad_norm: 1000
+      align: True
+      motif_loc: False
+      max_offsets: 1000
+      # num_rots: 100
+      num_rots: 1
+      # scale_rots: math.inf
+      scale_rots: 0.
+      # scale_rots: 0.1
+      obs_noise: 0.
+
+  samples:
+
+    # Number of backbone samples per sequence length.
+    samples_per_length: 10
+
+    # Minimum sequence length to sample.
+    min_length: 60
+
+    # Maximum sequence length to sample.
+    max_length: 128
+
+    # gap between lengths to sample. i.e. this script will sample all lengths
+    # in range(min_length, max_length, length_step)
+    length_step: 1
+
+    # Subset of lengths to sample. If null, sample all targets.
+    length_subset: null
+
+    overwrite: False
+
+    # CSV path for scaffolding targets.
+    csv_path: motif_scaffolding/benchmark.csv
+
+    # Number of scaffolds to sample per target.
+    samples_per_target: 100
+
+    # Batch size when sampling from the model
+    num_batch: 1
+
+    # Subset of targets to scaffold.
+    target_subset: null  # e.g. ['5TPN']

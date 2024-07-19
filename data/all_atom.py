@@ -261,7 +261,9 @@ def transrot_to_atom37(transrot_traj, res_mask):
     return atom37_traj
 
 
-def atom37_from_trans_rot(trans, rots, res_mask):
+def atom37_from_trans_rot(trans, rots, res_mask = None):
+        if res_mask is None:
+            res_mask = torch.ones([*trans.shape[:-1]], device=trans.device)
         rigids = du.create_rigid(rots, trans)
         atom37 = compute_backbone(
             rigids,
@@ -272,7 +274,7 @@ def atom37_from_trans_rot(trans, rots, res_mask):
                 device=trans.device
             )
         )[0]
-        atom37 = atom37.detach().cpu()
+        atom37 = atom37.to(trans.device)
         batch_atom37 = []
         num_batch = res_mask.shape[0]
         for i in range(num_batch):

@@ -12,7 +12,9 @@ outputs/
 **/lightning_logs/
 **/inference_outputs/
 .hydra
-preprocessed/
+processed_scope/
+processed_pdb/
+weights/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

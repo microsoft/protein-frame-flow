@@ -1,0 +1,62 @@
+shared:
+  seed: 123
+  max_cache_size: 100_000
+  samples_per_eval_length: 5
+  num_eval_lengths : 8
+  max_eval_length: 256
+
+  # Scaffolding parameters
+  min_motif_percent: 0.05
+  max_motif_percent: 0.5
+
+scope_dataset:
+  seed: ${shared.seed}
+  csv_path: ./metadata/scope_metadata.csv
+  max_cache_size: ${shared.max_cache_size}
+  cache_num_res: 0
+  add_plddt_mask: False
+  max_eval_length: ${shared.max_eval_length}
+  inpainting_percent: 1.0
+
+  # Eval parameters
+  samples_per_eval_length: ${shared.samples_per_eval_length}
+  num_eval_lengths: ${shared.num_eval_lengths}
+
+  # Filtering
+  filter:
+    max_num_res: 128
+    min_num_res: 60
+
+  # Scaffolding
+  min_motif_percent: ${shared.min_motif_percent}
+  max_motif_percent: ${shared.max_motif_percent} 
+
+
+pdb_dataset:
+  seed: ${shared.seed}
+  csv_path: ./metadata/pdb_metadata.csv
+  cluster_path: ./metadata/pdb.clusters
+  max_cache_size: ${shared.max_cache_size}
+  cache_num_res: 0
+  inpainting_percent: 1.0
+
+  add_plddt_mask: False
+  max_eval_length: ${shared.max_eval_length}
+
+  # Eval parameters
+  samples_per_eval_length: ${shared.samples_per_eval_length}
+  num_eval_lengths: ${shared.num_eval_lengths}
+
+  # Filtering
+  filter:
+    max_num_res: 512
+    min_num_res: 60
+    max_coil_percent: 0.5
+    rog_quantile: 0.96
+    oligomeric: ['monomeric']
+    num_chains: [1]
+
+  # Scaffolding
+  min_motif_percent: ${shared.min_motif_percent} 
+  max_motif_percent: ${shared.max_motif_percent}
+  
