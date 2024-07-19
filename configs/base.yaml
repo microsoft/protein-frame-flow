@@ -1,66 +1,53 @@
+defaults:
+  - _self_
+  - datasets
+  - model
+
 data:
-  # CSV for path and metadata to training examples.
-  dataset:
-    seed: 123
-    max_num_res: 128
-    cache_num_res: 0
-    min_num_res: 0
-    subset: null
-    samples_per_eval_length: 5
-    num_eval_lengths: 8
-    min_eval_length: 500
-    csv_path: ./preprocessed/metadata.csv
+
+  # Available tasks: hallucination, inpainting
+  task: hallucination
+
+  dataset: pdb
+
   loader:
     num_workers: 4
     prefetch_factor: 10
+
   sampler:
-    max_batch_size: 100
-    max_num_res_squared: 500_000
+    # Setting for 48GB GPUs
+    max_batch_size: 80
+    max_num_res_squared: 400_000
 
 interpolant:
   min_t: 1e-2
+
+  twisting:
+    use: False
+
   rots:
-    train_schedule: linear
+    corrupt: True
     sample_schedule: exp
     exp_rate: 10
+
   trans:
-    train_schedule: linear
+    corrupt: True
+    batch_ot: True
     sample_schedule: linear
+    sample_temp: 1.0
+    vpsde_bmin: 0.1
+    vpsde_bmax: 20.0
+    potential: null
+    potential_t_scaling: False
+    rog:
+      weight: 10.0
+      cutoff: 5.0
+
   sampling:
     num_timesteps: 100
-  self_condition: ${model.edge_features.self_condition}
+    do_sde: False
 
-model:
-  node_embed_size: 256
-  edge_embed_size: 128
-  symmetric: False
-  node_features:
-    c_s: ${model.node_embed_size}
-    c_pos_emb: 128
-    c_timestep_emb: 128
-    embed_diffuse_mask: False
-    max_num_res: 2000
-    timestep_int: 1000
-  edge_features:
-    single_bias_transition_n: 2
-    c_s: ${model.node_embed_size}
-    c_p: ${model.edge_embed_size}
-    relpos_k: 64
-    use_rbf: True
-    num_rbf: 32
-    feat_dim: 64
-    num_bins: 22
-    self_condition: True
-  ipa:
-    c_s: ${model.node_embed_size}
-    c_z: ${model.edge_embed_size}
-    c_hidden: 128
-    no_heads: 8
-    no_qk_points: 8
-    no_v_points: 12
-    seq_tfmr_num_heads: 4
-    seq_tfmr_num_layers: 2
-    num_blocks: 6
+  self_condition: ${model.edge_features.self_condition}
 
 experiment:
   debug: False
@@ -68,38 +55,31 @@ experiment:
   num_devices: 2
   warm_start: null
   warm_start_cfg_override: True
-  use_swa: False
-  batch_ot:
-    enabled: True
-    cost: kabsch
-    noise_per_sample: 1
-    permute: False
   training:
-    min_plddt_mask: null
-    loss: se3_vf_loss
+    mask_plddt: True
     bb_atom_scale: 0.1
     trans_scale: 0.1
     translation_loss_weight: 2.0
     t_normalize_clip: 0.9
     rotation_loss_weights: 1.0
-    aux_loss_weight: 1.0
-    aux_loss_t_pass: 0.25
+    aux_loss_weight: 0.0
+    aux_loss_use_bb_loss: True
+    aux_loss_use_pair_loss: True
+    aux_loss_t_pass: 0.5
   wandb:
-    name: baseline
+    name: ${data.task}_${data.dataset}
     project: se3-fm
-    save_code: True
-    tags: []
   optimizer:
     lr: 0.0001
   trainer:
     overfit_batches: 0
     min_epochs: 1 # prevents early stopping
-    max_epochs: 200
+    max_epochs: 1000
     accelerator: gpu
     log_every_n_steps: 1
     deterministic: False
     strategy: ddp
-    check_val_every_n_epoch: 2
+    check_val_every_n_epoch: 4
     accumulate_grad_batches: 2
   checkpointer:
     dirpath: ckpt/${experiment.wandb.project}/${experiment.wandb.name}/${now:%Y-%m-%d}_${now:%H-%M-%S}
@@ -107,3 +87,5 @@ experiment:
     save_top_k: 3
     monitor: valid/non_coil_percent
     mode: max
+  # Keep this null. Will be populated at runtime.
+  inference_dir: null

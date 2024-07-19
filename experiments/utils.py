@@ -2,9 +2,14 @@
 import logging
 import torch
 import os
+import random
+import GPUtil
 import numpy as np
+import pandas as pd
 from analysis import utils as au
 from pytorch_lightning.utilities.rank_zero import rank_zero_only
+from motif_scaffolding import save_motif_segments
+from openfold.utils import rigid_utils as ru
 
 
 class LengthDataset(torch.utils.data.Dataset):
@@ -36,6 +41,156 @@ class LengthDataset(torch.utils.data.Dataset):
         }
         return batch
 
+
+class ScaffoldingDataset(torch.utils.data.Dataset):
+    def __init__(self, samples_cfg):
+        self._samples_cfg = samples_cfg
+        self._benchmark_df = pd.read_csv(self._samples_cfg.csv_path)
+        if self._samples_cfg.target_subset is not None:
+            self._benchmark_df = self._benchmark_df[
+                self._benchmark_df.target.isin(self._samples_cfg.target_subset)
+            ]
+        if len(self._benchmark_df) == 0:
+            raise ValueError('No targets found.')
+        contigs_by_test_case = save_motif_segments.load_contigs_by_test_case(
+            self._benchmark_df)
+
+        num_batch = self._samples_cfg.num_batch
+        assert self._samples_cfg.samples_per_target % num_batch == 0
+        self.n_samples = self._samples_cfg.samples_per_target // num_batch
+
+        all_sample_ids = []
+        for row_id in range(len(contigs_by_test_case)):
+            target_row = self._benchmark_df.iloc[row_id]
+            for sample_id in range(self.n_samples):
+                sample_ids = torch.tensor([num_batch * sample_id + i for i in range(num_batch)])
+                all_sample_ids.append((target_row, sample_ids))
+        self._all_sample_ids = all_sample_ids
+
+    def __len__(self):
+        return len(self._all_sample_ids)
+
+    def __getitem__(self, idx):
+        target_row, sample_id = self._all_sample_ids[idx]
+        target = target_row.target
+        motif_contig_info = save_motif_segments.load_contig_test_case(target_row)
+        motif_segments = [
+            torch.tensor(motif_segment, dtype=torch.float64)
+            for motif_segment in motif_contig_info['motif_segments']]
+        motif_locations  = []
+        if isinstance(target_row.length, str):
+            lengths = target_row.length.split('-')
+            if len(lengths) == 1:
+                start_length = lengths[0]
+                end_length = lengths[0]
+            else:
+                start_length, end_length = lengths
+            sample_lengths = [int(start_length), int(end_length)+1]
+        else:
+            sample_lengths = None
+        sample_contig, sampled_mask_length, _ = get_sampled_mask(
+            motif_contig_info['contig'], sample_lengths)
+        motif_locations = save_motif_segments.motif_locations_from_contig(sample_contig[0])
+        diffuse_mask = torch.ones(sampled_mask_length)
+        trans_1 = torch.zeros(sampled_mask_length, 3)
+        rotmats_1 = torch.eye(3)[None].repeat(sampled_mask_length, 1, 1)
+        aatype = torch.zeros(sampled_mask_length)
+        for (start, end), motif_pos, motif_aatype in zip(motif_locations, motif_segments, motif_contig_info['aatype']):
+            diffuse_mask[start:end+1] = 0.0
+            motif_rigid = ru.Rigid.from_tensor_7(motif_pos)
+            motif_trans = motif_rigid.get_trans()
+            motif_rotmats = motif_rigid.get_rots().get_rot_mats()
+            trans_1[start:end+1] = motif_trans
+            rotmats_1[start:end+1] = motif_rotmats
+            aatype[start:end+1] = motif_aatype
+        motif_com = torch.sum(trans_1, dim=-2, keepdim=True) / torch.sum(~diffuse_mask.bool())
+        trans_1 = diffuse_mask[:, None] * trans_1 + (1 - diffuse_mask[:, None]) * (trans_1 - motif_com)
+        return {
+            'target': target,
+            'sample_id': sample_id,
+            'trans_1': trans_1,
+            'rotmats_1': rotmats_1,
+            'diffuse_mask': diffuse_mask,
+            'aatype': aatype,
+        }
+
+
+def get_sampled_mask(contigs, length, rng=None, num_tries=1000000):
+    '''
+    Parses contig and length argument to sample scaffolds and motifs.
+
+    Taken from rosettafold codebase.
+    '''
+    length_compatible=False
+    count = 0
+    while length_compatible is False:
+        inpaint_chains=0
+        contig_list = contigs.strip().split()
+        sampled_mask = []
+        sampled_mask_length = 0
+        #allow receptor chain to be last in contig string
+        if all([i[0].isalpha() for i in contig_list[-1].split(",")]):
+            contig_list[-1] = f'{contig_list[-1]},0'
+        for con in contig_list:
+            if (all([i[0].isalpha() for i in con.split(",")[:-1]]) and con.split(",")[-1] == '0'):
+                #receptor chain
+                sampled_mask.append(con)
+            else:
+                inpaint_chains += 1
+                #chain to be inpainted. These are the only chains that count towards the length of the contig
+                subcons = con.split(",")
+                subcon_out = []
+                for subcon in subcons:
+                    if subcon[0].isalpha():
+                        subcon_out.append(subcon)
+                        if '-' in subcon:
+                            sampled_mask_length += (int(subcon.split("-")[1])-int(subcon.split("-")[0][1:])+1)
+                        else:
+                            sampled_mask_length += 1
+
+                    else:
+                        if '-' in subcon:
+                            if rng is not None:
+                                length_inpaint = rng.integers(int(subcon.split("-")[0]),int(subcon.split("-")[1]))
+                            else:
+                                length_inpaint=random.randint(int(subcon.split("-")[0]),int(subcon.split("-")[1]))
+                            subcon_out.append(f'{length_inpaint}-{length_inpaint}')
+                            sampled_mask_length += length_inpaint
+                        elif subcon == '0':
+                            subcon_out.append('0')
+                        else:
+                            length_inpaint=int(subcon)
+                            subcon_out.append(f'{length_inpaint}-{length_inpaint}')
+                            sampled_mask_length += int(subcon)
+                sampled_mask.append(','.join(subcon_out))
+        #check length is compatible 
+        if length is not None:
+            if sampled_mask_length >= length[0] and sampled_mask_length < length[1]:
+                length_compatible = True
+        else:
+            length_compatible = True
+        count+=1
+        if count == num_tries: #contig string incompatible with this length
+            raise ValueError("Contig string incompatible with --length range")
+    return sampled_mask, sampled_mask_length, inpaint_chains
+
+
+def dataset_creation(dataset_class, cfg, task):
+    train_dataset = dataset_class(
+        dataset_cfg=cfg,
+        task=task,
+        is_training=True,
+    ) 
+    eval_dataset = dataset_class(
+        dataset_cfg=cfg,
+        task=task,
+        is_training=False,
+    ) 
+    return train_dataset, eval_dataset
+
+
+def get_available_device(num_device):
+    return GPUtil.getAvailable(order='memory', limit = 8)[:num_device]
 
 
 def save_traj(
