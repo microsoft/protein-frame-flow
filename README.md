@@ -41,7 +41,9 @@ note={}
 
 ## Future updates
 
-I want to add motif-scaffolding evaluation with ProteinMPNN and AlphaFold2 for motif-scaffolding (since I know how annoying this is to implement).
+Adding ProteinMPNN or folding with AlphaFold2 or ESMFold can't be done currently with Microsoft's open source policy for this project.
+I am in discussion for a more standardized motif-scaffolding codebase specifically for benchmarking that myself (and others) hope will make this task easier to evaluate.
+Currently it is very arduous with requiring over 2600 ProteinMPNN and AlphaFold2 evaluations for each benchmark run.
 
 ## Installation
 
